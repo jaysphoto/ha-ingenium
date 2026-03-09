@@ -1,0 +1,9 @@
+{
+  "domain": "ingenium",
+  "name": "Ingenium",
+  "version": "0.1.0",
+  "documentation": "https://github.com/jaysphoto/ha-ingenium",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@jaysphoto"]
+}

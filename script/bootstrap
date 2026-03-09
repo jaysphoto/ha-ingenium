@@ -1,0 +1,22 @@
+#!/bin/sh
+# Resolve all dependencies that the application requires to run.
+set -e
+
+cd "$(realpath "$(dirname "$0")/..")"
+
+echo "Installing development dependencies..."
+if [ -z "$VIRTUAL_ENV" ]; then
+  python3 -m venv .venv
+  . .venv/bin/activate
+fi
+
+python -m pip install --upgrade pip
+if [ -f requirements_dev.txt ]; then
+  pip install -r requirements_dev.txt
+fi
+
+if [ -f setup.py ] || [ -f pyproject.toml ]; then
+  pip install -e . || true
+fi
+
+echo "Bootstrap complete."
