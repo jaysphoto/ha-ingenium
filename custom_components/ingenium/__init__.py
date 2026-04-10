@@ -6,11 +6,6 @@ from .const import DOMAIN, CONF_HOST, TASK_BUSING
 from .busing.comm import IngeniumBUSingCommunication
 
 
-async def async_setup(hass: HomeAssistant, config: dict):
-    hass.data.setdefault(DOMAIN, {})
-    return True
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data.setdefault(DOMAIN, {})
     host = entry.data[CONF_HOST]

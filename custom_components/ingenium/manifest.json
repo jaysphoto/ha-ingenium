@@ -1,11 +1,11 @@
 {
   "domain": "ingenium",
   "name": "Ingenium",
-  "version": "0.1.0",
-  "documentation": "https://github.com/jaysphoto/ha-ingenium",
-  "requirements": [],
-  "dependencies": [],
   "codeowners": ["@jaysphoto"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/jaysphoto/ha-ingenium",
   "iot_class": "local_push",
-  "config_flow": true
+  "requirements": [],
+  "version": "0.1.0"
 }
