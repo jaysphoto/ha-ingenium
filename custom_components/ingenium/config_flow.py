@@ -4,14 +4,11 @@ import voluptuous as vol
 from homeassistant import config_entries
 from typing import Optional
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_HOST
 from .exceptions import IngeniumHttpNetworkError, IngeniumHttpClientError, IngeniumHttpServerError
 from .http.local import IngeniumHttpLocal
 
 _LOGGER = logging.getLogger(__name__)
-
-CONF_HOST = "host"
-CONF_PORT = "4567"
 
 
 class IngeniumConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -22,7 +19,7 @@ class IngeniumConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if info is not None:
             try:
-                client = IngeniumHttpLocal()
+                client = IngeniumHttpLocal(host=info[CONF_HOST])
 
                 _devices = await self.hass.async_add_executor_job(
                     client.devices
@@ -30,12 +27,15 @@ class IngeniumConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except IngeniumHttpNetworkError:
                 errors["base"] = "network_error"
             except IngeniumHttpServerError:
-                errors["base"] = "communication_error"
+                errors["base"] = "server_communication_error"
             except IngeniumHttpClientError:
-                errors["base"] = "communication_error"
+                errors["base"] = "client_communication_error"
             else:
                 self._host = info[CONF_HOST]
-                _LOGGER.info("Found %d devices", len(_devices))
+                _LOGGER.info("Detected %d connected devices on %s",
+                             len(_devices), info[CONF_HOST])
+
+                return self.async_create_entry(title=info["host"], data=info)
 
         info = info or {}
 

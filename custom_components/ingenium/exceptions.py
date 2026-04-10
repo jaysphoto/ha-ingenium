@@ -15,3 +15,7 @@ class IngeniumHttpClientError(IngeniumException):
 
 class IngeniumHttpServerError(IngeniumException):
     """Error to indicate server response error occurred."""
+
+
+class IngeniumNotSupportedError(IngeniumException):
+    """Error to indicate device is not supported."""
