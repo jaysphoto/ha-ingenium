@@ -37,20 +37,20 @@ Android app : `com.ingenium.ingeniumasc`
 Determine connection type (cloud vs. local network) and connection state
 
 ```
-            if (Globals.tipoConexion == 0) {
-                Globals.ipEthBus = Globals.ipServidor;
-                Globals.userEthBus = Globals.arrayConexiones.get(Globals.conexionSeleccionada).user;
-                Globals.passEthBus = Globals.arrayConexiones.get(Globals.conexionSeleccionada).password;
-            } else {
-                Globals.ipEthBus = Globals.arrayConexiones.get(Globals.conexionSeleccionada).ip;
-                if (!ethbusAccesible()) {
-                    // Shows connection issue warning dialog
-                    return // makes early return
-                }
-            }
+if (Globals.tipoConexion == 0) {
+    Globals.ipEthBus = Globals.ipServidor;
+    Globals.userEthBus = Globals.arrayConexiones.get(Globals.conexionSeleccionada).user;
+    Globals.passEthBus = Globals.arrayConexiones.get(Globals.conexionSeleccionada).password;
+} else {
+    Globals.ipEthBus = Globals.arrayConexiones.get(Globals.conexionSeleccionada).ip;
+    if (!ethbusAccesible()) {
+        // Shows connection issue warning dialog
+        return // makes early return
+    }
+}
 
-            // Continue async with Step 2, initialization
-            new cargaAsincronaTask().execute(new Void[0]);
+// Continue async with Step 2, initialization
+new cargaAsincronaTask().execute(new Void[0]);
 ```
 
 ## 2. Asynchronous initialization of "Project"
@@ -58,18 +58,36 @@ Determine connection type (cloud vs. local network) and connection state
 Irrespective of the connection type, the initialization makes local copies of the Ingenium device configuration (filesystem) and initializes the Planos (screens) and Devices (dispositivos):
 
 ```
-            if (Globals.tipoConexion == 1) {
-                MainActivity.this.cargaLocal();
-            } else {
-                this.result = MainActivity.this.cargaRemota();
-            }
-            ConfiguracionProyecto config = new ConfiguracionProyecto(MainActivity.this);
-            config.configurarArrayPlanos();
-            config.configurarArrayDispositivos();
-            Globals.check_infobar_out_mode();
-            return null;
+if (Globals.tipoConexion == 1) {
+    MainActivity.this.cargaLocal();
+} else {
+    this.result = MainActivity.this.cargaRemota();
+}
+ConfiguracionProyecto config = new ConfiguracionProyecto(MainActivity.this);
+config.configurarArrayPlanos();
+config.configurarArrayDispositivos();
+Globals.check_infobar_out_mode();
+return null;
 ```
 
+## 3. Reading current state
+Ingenium App opens with messages that trigger a (full?) devices status dump:
+
+```
+Received: {'raw': 'fefe0afffffefe0000', 'command': 10, 'origin': 65535, 'destination': 65278, 'data1': 0, 'data2': 0}
+Received: {'raw': 'fefe01fefe00ff0000', 'command': 1, 'origin': 65278, 'destination': 255, 'data1': 0, 'data2': 0}
+```
+
+Messages are decoded in 9-bytes sequences:
+```
+p_result2.comando = recBuffer[2];
+p_result2.destino = (short) (
+    (recBuffer[3] << 8) + (recBuffer[4] & 255));
+p_result2.origen = (short) (
+    (recBuffer[5] << 8) + (recBuffer[6] & 255));
+p_result2.dato1 = recBuffer[7] & 255;
+p_result2.dato2 = recBuffer[8] & 255;
+```
 ## SQLite database
 
 Basic local (Android) SQLite database
