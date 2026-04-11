@@ -1,32 +1,41 @@
 # Reverse engineering notes of Ingenium devices
 
-# Architecture
+## Architecture
 
 tbc.
 
-# Global system configuration
+## Global system configuration
 
 ```
 Globals.tipoConexion == 0 // Ingenium (Cloud) Webserver
+Globals.tipoConexion != 0 // Local network connection to Touch (wall-)device
 ```
 
-# Network connections
+## Networking
 
-| Port        | Description             |
-| ----------- | ----------------------- |
-| `tcp/8000`  | Web server / -interface |
-| `tcp/12347` | ETHBUSIII daemon        |
+| Port        | Description                                                           |
+| ----------- | --------------------------------------------------------------------- |
+| `tcp/21`    | FTP access*, generally used for device updates                        |
+| `tcp/23`    | Telnet for maintenance access*                                        |
+| `tcp/8000`  | Web server / -interface                                               |
+| `tcp/12347` | ETHBUSIII daemon, modbus-like protocol for communicating with devices |
 
-# Web server content
+*) Touch device access uses default credentials
+
+## Web server
 
 Initialization of the client is initially web based (port 8000 webserver)
 
-| URI           | Description                                             |
-| ------------- | ------------------------------------------------------- |
-| `/CONFIG.TXT` | Touch display device configuration                      |
-| `/Instal.dat` | List of connecting BUSing devices with their properties |
-| `/dir_busing` | tbd.                                                    |
-| `/v3_0`       | Indicates (later?) V3.0 devices or KNX type device      |
+| URI                   | Description                                             |
+| --------------------- | ------------------------------------------------------- |
+| `/CONFIG.TXT`         | Touch display device configuration                      |
+| `/CONFIG_NET.TXT`     | Touch display device network configuration              |
+| `/SiDEVer`            | Version string of the Development KIT                   |
+| `/firma.dat`          | Information on last firmware update of touch device     |
+| `/kernel_version.txt` | Kernel version string of the touch device               |
+| `/Instal.dat`         | List of connecting BUSing devices with their properties |
+| `/dir_busing`         | BUSing address of the device, not listed in Instal.dat  |
+| `/v3_0`               | Indicates (later?) V3.0 devices or KNX type device      |
 
 # Android Application
 
