@@ -1,3 +1,23 @@
+"""Ingenium touch device coordinator"""
+
+from homeassistant import core
+
+from .const import CONF_HOST
+
+
+class IngeniumDevice:
+    """Class to represent a Ingenium touch device."""
+
+    def __init__(self, hass: core.HomeAssistant, config_entry: dict):
+        self.config_entry = config_entry
+        self.hass = hass
+
+    @property
+    def host(self) -> str:
+        """Return the host of the ingenium touch device."""
+        return self.config_entry.data[CONF_HOST]
+
+
 class IngeniumDeviceInfo:
     """
     Base class for detected ingenium device information.
@@ -17,8 +37,14 @@ class IngeniumDeviceInfo:
 
     def __init__(self, label: str, type: int, address: int):
         """Initialize the device."""
+        self._label = label
         self._type = type
         self._address = address
+
+    @property
+    def label(self) -> str:
+        """Return the label of the device."""
+        return self._label
 
     @property
     def type(self) -> int:

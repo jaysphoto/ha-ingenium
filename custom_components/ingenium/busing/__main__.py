@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import logging
-from xmlrpc import client
 
 from comm import IngeniumBUSingCommunication as busing
 

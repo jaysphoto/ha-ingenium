@@ -1,7 +1,6 @@
 import asyncio
 import logging
 
-from homeassistant.core import HomeAssistant
 from struct import unpack
 from typing import List
 
