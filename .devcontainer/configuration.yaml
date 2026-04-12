@@ -7,4 +7,4 @@ http:
 logger:
   default: error
   logs:
-    custom_components.ha-ingenium: debug
+    custom_components.ingenium: debug
