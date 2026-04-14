@@ -9,9 +9,15 @@ _LOGGER = logging.getLogger(__name__)
 
 class IngeniumBUSingCommunication:
     """Class to Communicate over BUSing protocol with Ingenium server."""
+
     DEFAULT_PORT = 12347
 
-    def __init__(self, host: str, port: int = DEFAULT_PORT, decoder: 'IngeniumBUSingDecoder' = None):
+    def __init__(
+        self,
+        host: str,
+        port: int = DEFAULT_PORT,
+        decoder: "IngeniumBUSingDecoder" = None,
+    ):
         self._host = host
         self._port = port
         self._decoder = decoder or IngeniumBUSingDecoder()
@@ -20,7 +26,9 @@ class IngeniumBUSingCommunication:
         """TCP client task that connects to device and logs incoming data in hex."""
         while True:
             try:
-                self._reader, self._writer = await asyncio.open_connection(self._host, self._port)
+                self._reader, self._writer = await asyncio.open_connection(
+                    self._host, self._port
+                )
                 _LOGGER.info("Connected to %s:%d", self._host, self._port)
                 try:
                     while True:
@@ -31,8 +39,10 @@ class IngeniumBUSingCommunication:
                         decoded_messages = self._decoder.decode_message(data)
 
                         # TODO: instead of logging, we should dispatch these messages to the rest of the library
-                        [_LOGGER.debug("Received datagram: %s", msg)
-                         for msg in decoded_messages]
+                        [
+                            _LOGGER.debug("Received datagram: %s", msg)
+                            for msg in decoded_messages
+                        ]
                 finally:
                     self._writer.close()
                     await self._writer.wait_closed()
@@ -40,11 +50,12 @@ class IngeniumBUSingCommunication:
                 _LOGGER.info("Listener cancelled, closed connection")
                 break
             except Exception as e:
-                _LOGGER.error(
-                    "Connection failed: %s, retrying in 5 seconds", e)
+                _LOGGER.error("Connection failed: %s, retrying in 5 seconds", e)
                 await asyncio.sleep(5)
 
-    async def send_message(self, command: int, origin: int, destination: int, data1: int, data2: int):
+    async def send_message(
+        self, command: int, origin: int, destination: int, data1: int, data2: int
+    ):
         """Send a message to the Ingenium server."""
         if not hasattr(self, "_writer") or self._writer is None:
             _LOGGER.error("Not connected to server, cannot send message")
@@ -84,7 +95,7 @@ class IngeniumBUSingDecoder:
         offset = 0
         while offset < len(data):
             # Datagrams are each 9 bytes long, so we read in chunks of 9 bytes
-            dg = data[offset:offset+9]
+            dg = data[offset : offset + 9]
             if len(dg) < 9:
                 _LOGGER.warning("Incomplete datagram received: %s", dg.hex())
                 break

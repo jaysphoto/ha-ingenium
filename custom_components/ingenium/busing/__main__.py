@@ -17,8 +17,7 @@ async def main(
     LOGGER.info("Starting IngeniumBUSingCommunication")
 
     client = busing(host, port)
-    task = asyncio.create_task(
-        client.listener())
+    task = asyncio.create_task(client.listener())
 
     await asyncio.sleep(1)
 
@@ -34,6 +33,7 @@ async def main(
 
     finally:
         task.cancel()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

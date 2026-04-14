@@ -1,4 +1,5 @@
 """Ingenium integration package."""
+
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry
@@ -15,8 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     dr = device_registry.async_get(hass)
     dr.async_get_or_create(
         config_entry_id=entry.entry_id,
-        connections={
-            (device_registry.CONNECTION_NETWORK_MAC, entry.data[CONF_MAC])},
+        connections={(device_registry.CONNECTION_NETWORK_MAC, entry.data[CONF_MAC])},
         # identifiers={
         #     (DOMAIN, api.config.bridge_id),
         #     (DOMAIN, api.config.bridge_device.id),
@@ -29,9 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Register the listener task for the bus communication
     comm = IngeniumBUSingCommunication(entry.data[CONF_HOST])
-    task = hass.async_create_task(
-        comm.listener()
-    )
+    task = hass.async_create_task(comm.listener())
     hass.data[DOMAIN][entry.entry_id] = {TASK_BUSING: task}
 
     return True
