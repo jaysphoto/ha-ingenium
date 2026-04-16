@@ -1,36 +1,27 @@
 """Ingenium integration package."""
 
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import device_registry
 
-from .const import DOMAIN, CONF_HOST, CONF_MAC, ATTR_MANUFACTURER, TASK_BUSING
-from .busing.comm import IngeniumBUSingCommunication
+from .const import DOMAIN, TASK_BUSING
+from .device import Device
+
+PLATFORMS: list[Platform] = [Platform.CLIMATE]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
-    assert CONF_MAC in entry.data
+    coordinator = Device(hass, entry)
+    await coordinator.async_initialize_device()
 
-    dr = device_registry.async_get(hass)
-    dr.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        connections={(device_registry.CONNECTION_NETWORK_MAC, entry.data[CONF_MAC])},
-        # identifiers={
-        #     (DOMAIN, api.config.bridge_id),
-        #     (DOMAIN, api.config.bridge_device.id),
-        # },
-        manufacturer=ATTR_MANUFACTURER,
-        # name=api.config.name,
-        # model_id=api.config.model_id,
-        # sw_version=await hass.async_add_executor_job(http.sw_version)
-    )
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": coordinator.get_devices(),
+    }
 
-    # Register the listener task for the bus communication
-    comm = IngeniumBUSingCommunication(entry.data[CONF_HOST])
-    task = hass.async_create_task(comm.listener())
-    hass.data[DOMAIN][entry.entry_id] = {TASK_BUSING: task}
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 

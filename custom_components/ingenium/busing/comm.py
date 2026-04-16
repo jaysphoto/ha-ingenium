@@ -37,9 +37,8 @@ class IngeniumBUSingCommunication:
                         if d is None:
                             break
 
-                        if callback:
-                            [callback(msg) for msg in d]
-
+                        if callback is not None:
+                            callback(d)
                 finally:
                     await self._close_connection()
             except asyncio.CancelledError:
@@ -110,6 +109,9 @@ class IngeniumBUSingCommunication:
         self._reader = self._writer = None
 
     async def _read_messages(self) -> List[dict] | None:
+        if self._reader.at_eof():
+            return None
+
         data = await self._reader.read(1024)
         if not data:
             return None
