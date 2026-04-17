@@ -45,6 +45,13 @@ class BUSDevice:
     output: int
 
 
+@dataclass
+class IgnoredBUSDevice:
+    address: int
+    type: int
+    output: int
+
+
 """Class to represent a Ingenium touch device or web server interface and coordinate BUS communication and entities."""
 
 

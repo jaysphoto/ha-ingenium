@@ -2,6 +2,7 @@ import async_timeout
 import logging
 import voluptuous as vol
 
+from homeassistant import data_entry_flow
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.selector import selector
@@ -21,6 +22,7 @@ from .exceptions import (
     IngeniumHttpClientError,
     IngeniumHttpServerError,
 )
+from .device import IgnoredBUSDevice
 from .http.local import IngeniumHttpLocal
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,30 +81,71 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_devices(self, user_info: Optional[dict]) -> ConfigFlowResult:
-        if CONF_IGNORE_AVAILABILITY in user_info:
-            self.config[CONF_IGNORE_AVAILABILITY] = user_info[CONF_IGNORE_AVAILABILITY]
-            return self.async_create_entry(
-                title=f"{ATTR_MANUFACTURER} at {self.config[CONF_HOST]}",
-                data=self.config,
+        if user_info is not None:
+            user_info_ignore_devices = [
+                key
+                for key in user_info
+                if key.startswith(f"{CONF_IGNORE_AVAILABILITY}_type_")
+            ]
+            if any(user_info_ignore_devices):
+                ignored_devices: list[IgnoredBUSDevice] = []
+
+                for key in user_info_ignore_devices:
+                    type = key.partition(f"{CONF_IGNORE_AVAILABILITY}_type_")[2]
+                    for value in user_info[key][CONF_IGNORE_AVAILABILITY]:
+                        _LOGGER.info(f"Found ignored device: {value}")
+                        address, _, output = value.partition("-")
+
+                        ignored_devices.append(
+                            IgnoredBUSDevice(type=type, address=address, output=output)
+                        )
+
+                self.config[CONF_IGNORE_AVAILABILITY] = ignored_devices
+
+                _LOGGER.debug(f"Creating entry with config data: {self.config}")
+                return self.async_create_entry(
+                    title=f"{ATTR_MANUFACTURER} at {self.config[CONF_HOST]}",
+                    data=self.config,
+                )
+
+        devices_by_type: dict[int, list] = {}
+        for device in self.config["device"][CONF_INSTALLATION_DATA]:
+            devices_by_type.setdefault(device.type, []).append(device)
+
+        _LOGGER.debug("Device types = %s", list(devices_by_type.keys()))
+
+        data_schema: dict = {}
+        for device_type in sorted(devices_by_type.keys()):
+            devices = devices_by_type[device_type]
+            options = [
+                {"value": f"{device.address}-{device.output}", "label": device.label}
+                for device in devices
+            ]
+            section_key = f"{CONF_IGNORE_AVAILABILITY}_type_{device_type}"
+
+            data_schema[vol.Required(section_key, default={})] = (
+                data_entry_flow.section(
+                    vol.Schema(
+                        {
+                            vol.Optional(
+                                CONF_IGNORE_AVAILABILITY, default=[]
+                            ): selector(
+                                {
+                                    "select": {
+                                        "options": options,
+                                        "multiple": True,
+                                    }
+                                }
+                            )
+                        }
+                    ),
+                    {"collapsed": False},
+                )
             )
-
-        res_ids = []
-        for k in self.config["device"][CONF_INSTALLATION_DATA]:
-            res_ids.append(k.label)
-
-        cur_ids = []
-
-        _LOGGER.debug("Installation data = %s", res_ids)
 
         return self.async_show_form(
             step_id="devices",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(CONF_IGNORE_AVAILABILITY, default=cur_ids): selector(
-                        {"select": {"options": res_ids, "multiple": True}}
-                    ),
-                }
-            ),
+            data_schema=vol.Schema(data_schema),
         )
 
     def get_device_http(self, host: str):
