@@ -1,3 +1,7 @@
+[![Codecov (with branch)](https://img.shields.io/codecov/c/github/jaysphoto/ha-ingenium/dev)](https://app.codecov.io/gh/jaysphoto/ha-ingenium/tree/dev)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/jaysphoto/ha-ingenium/hassfest.yaml)](https://github.com/jaysphoto/ha-ingenium/actions)
+
+
 # Ingenium Home Assistant custom integration
 
 This workspace contains a minimal scaffold for a Home Assistant custom integration named "Ingenium".
