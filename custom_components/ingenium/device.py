@@ -2,7 +2,7 @@
 
 import logging
 
-from enum import StrEnum
+from enum import Enum
 from homeassistant.core import HomeAssistant, dataclass
 from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.update_coordinator import (
@@ -11,27 +11,28 @@ from homeassistant.helpers.update_coordinator import (
 
 
 from .busing.comm import IngeniumBUSingCommunication
-from .const import CONF_HOST, CONF_MAC, ATTR_MANUFACTURER, TASK_BUSING, DOMAIN
+from .const import (
+    ATTR_MANUFACTURER,
+    CONF_DEVICE,
+    CONF_HOST,
+    CONF_IGNORE_AVAILABILITY,
+    CONF_INSTALLATION_DATA,
+    CONF_MAC,
+    DOMAIN,
+    TASK_BUSING,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class BusDeviceType(StrEnum):
+class BusDeviceType(Enum):
     """Device types."""
 
-    AC_GATEWAY_LG = "gateway_LG"
-    OTHER = "other"
+    AC_GATEWAY_LG = 47
+    OTHER = 0
 
 
-BUS_DEVICES = [
-    {
-        "type": 47,
-        "device_type": BusDeviceType.AC_GATEWAY_LG,
-        "address": 11,
-        "output": 0,
-        "label": "GENERAL",
-    },
-]
+BusDeviceTypeNames = {47: BusDeviceType.AC_GATEWAY_LG.name}
 
 
 @dataclass
@@ -64,6 +65,9 @@ class Device(DataUpdateCoordinator):
             _LOGGER,
             name="IngeniumDevice",
         )
+
+        assert CONF_HOST in config_entry.data
+
         # FIXME: Config entry data types should be defined in a schema and validated, not accessed as dicts
         self._config_entry = config_entry
         self._climate_device_address = None
@@ -118,8 +122,40 @@ class Device(DataUpdateCoordinator):
 
     def get_devices(self) -> list[BUSDevice]:
         """Return the devices for the ingenium touch device."""
-        # TODO: Read devices from setup configuration, not from this hardcoded list
-        return [BUSDevice(**device) for device in BUS_DEVICES]
+        return [
+            device
+            for device in self._all_devices()
+            if not self._is_device_ignored(device)
+        ]
+
+    def _all_devices(self) -> list[BUSDevice]:
+        install_config = self._config_entry.data.get(CONF_DEVICE, {}).get(
+            CONF_INSTALLATION_DATA, []
+        )
+
+        return [
+            BUSDevice(
+                d["address"],
+                d["label"],
+                self._device_type(d["type"]),
+                d["type"],
+                d["output"],
+            )
+            for d in install_config
+        ]
+
+    def _device_type(self, type) -> BusDeviceType:
+        if type in BusDeviceTypeNames:
+            return BusDeviceType.__getitem__(BusDeviceTypeNames[type])
+
+        return BusDeviceType.OTHER
+
+    def _is_device_ignored(self, d):
+        return {
+            "type": d.type,
+            "output": d.output,
+            "address": d.address,
+        } in self._config_entry.data.get(CONF_IGNORE_AVAILABILITY, [])
 
     def _bus_message(self, msgs):
         entity_updates = {}
@@ -135,6 +171,5 @@ class Device(DataUpdateCoordinator):
                     entity_updates[context] = {"bus_messages": []}
                 entity_updates[context]["bus_messages"].append(msg)
 
-        _LOGGER.info(f"Sending data for Entity update: {entity_updates}")
         self.async_set_updated_data(entity_updates)
         pass

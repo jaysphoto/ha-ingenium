@@ -10,6 +10,7 @@ from typing import Optional
 
 from .const import (
     DOMAIN,
+    CONF_DEVICE,
     CONF_HOST,
     CONF_INSTALLATION_DATA,
     CONF_IGNORE_AVAILABILITY,
@@ -66,7 +67,7 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_VERSION: VERSION,
                     CONF_HOST: user_info[CONF_HOST],
                     CONF_MAC: conf.get("MAC", "unknown"),
-                    "device": {CONF_INSTALLATION_DATA: installation_data},
+                    CONF_DEVICE: {CONF_INSTALLATION_DATA: installation_data},
                 }
                 return await self.async_step_devices(user_info)
 
@@ -101,6 +102,10 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
 
                 self.config[CONF_IGNORE_AVAILABILITY] = ignored_devices
+                self.config[CONF_DEVICE][CONF_INSTALLATION_DATA] = [
+                    d.to_dict()
+                    for d in self.config[CONF_DEVICE][CONF_INSTALLATION_DATA]
+                ]
 
                 _LOGGER.debug(f"Creating entry with config data: {self.config}")
                 return self.async_create_entry(

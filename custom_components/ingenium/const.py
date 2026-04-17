@@ -3,6 +3,7 @@
 DOMAIN = "ingenium"
 DEFAULT_NAME = "Ingenium aSC"
 ATTR_MANUFACTURER = "Ingenium"
+CONF_DEVICE = "device"
 CONF_HOST = "host"
 CONF_INSTALLATION_DATA = "installation_data"
 CONF_IGNORE_AVAILABILITY = "ignore_availability"

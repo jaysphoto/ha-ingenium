@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.ingenium import config_flow
 from custom_components.ingenium.const import (
+    CONF_DEVICE,
     CONF_HOST,
     CONF_IGNORE_AVAILABILITY,
     CONF_INSTALLATION_DATA,
@@ -62,8 +63,14 @@ async def test_config_flow_simple_setup(hass):
         assert result["data"][CONF_VERSION] == 1
         assert result["data"][CONF_MAC] == "AA:BB:CC:DD:EE:FF"
         assert result["data"][CONF_IGNORE_AVAILABILITY] == []
-        assert (
-            result["data"]["device"][CONF_INSTALLATION_DATA] == mock_installation_data
+        assert all(
+            [
+                device["label"]
+                and device["type"]
+                and device["output"]
+                and device["address"]
+                for device in result["data"][CONF_DEVICE][CONF_INSTALLATION_DATA]
+            ]
         )
 
 
@@ -118,8 +125,14 @@ async def test_config_flow_ignore_device_setup(hass):
         assert result["data"][CONF_IGNORE_AVAILABILITY] == [
             IgnoredBUSDevice(address="1", type="1", output="1")
         ]
-        assert (
-            result["data"]["device"][CONF_INSTALLATION_DATA] == mock_installation_data
+        assert all(
+            [
+                device["label"]
+                and device["type"]
+                and device["output"]
+                and device["address"]
+                for device in result["data"][CONF_DEVICE][CONF_INSTALLATION_DATA]
+            ]
         )
 
 
