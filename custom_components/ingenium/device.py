@@ -115,12 +115,9 @@ class Device(DataUpdateCoordinator):
         self.comm = IngeniumBUSingCommunication(self.host)
 
         # Setup listener task for BUSing communication
-        self._listener = self.hass.async_create_task(
-            self.comm.listener(self._bus_message)
+        self._listener = self.hass.async_create_background_task(
+            self.comm.listener(self._bus_message), f"{DOMAIN}_{TASK_BUSING}"
         )
-        self.hass.data[DOMAIN][self._config_entry.entry_id] = {
-            TASK_BUSING: self._listener
-        }
 
     def get_devices(self) -> list[BUSDevice]:
         """Return the devices for the ingenium touch device."""
