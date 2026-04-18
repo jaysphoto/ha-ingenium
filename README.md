@@ -1,6 +1,6 @@
-[![Codecov (with branch)](https://img.shields.io/codecov/c/github/jaysphoto/ha-ingenium/dev)](https://app.codecov.io/gh/jaysphoto/ha-ingenium/tree/dev)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/jaysphoto/ha-ingenium/tests.yml)](https://github.com/jaysphoto/ha-ingenium/actions)
-
+[![Codecov (with branch)](https://img.shields.io/codecov/c/github/jaysphoto/ha-ingenium/dev)](https://app.codecov.io/gh/jaysphoto/ha-ingenium/tree/dev)
+[![GitHub Release](https://img.shields.io/github/v/release/jaysphoto/ha-ingenium?include_prereleases)](https://github.com/jaysphoto/ha-ingenium/releases)
 
 # Ingenium Home Assistant custom integration
 
