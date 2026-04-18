@@ -43,61 +43,51 @@ def mock_installation_data():
     ]
 
 
-@pytest.mark.asyncio
-async def test_config_flow_simple_setup(hass, mock_http, mock_installation_data):
-    """Test successful config flow setup with mocked HTTP responses."""
+async def test_config_flow_first_step(hass):
+    # Initialize the config flow
+    flow = config_flow.IngeniumConfigFlow()
+    flow.hass = hass
 
-    # Patch the get_device_http method to return our mock
-    with patch.object(
-        config_flow.IngeniumConfigFlow, "get_device_http", return_value=mock_http
+    # Step 1: No data - User step asks for Hostname
+    result = await flow.async_step_user()
+
+    # Should proceed to devices step
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+
+    # Verify the data schema contains one element .
+    data_schema = result["data_schema"]
+    schema_dict = data_schema.schema
+
+    schema_keys = {
+        key.schema: schema_dict[key]
+        for key in schema_dict
+        if key.schema.startswith(CONF_HOST)
+    }
+
+    assert len(schema_keys) == 1, (
+        f"Expected 1 entry in form schema, got {list(schema_keys)}"
+    )
+
+
+async def test_config_flow_second_step(hass, mock_http):
+    # Initialize the config flow
+    flow = config_flow.IngeniumConfigFlow()
+    flow.hass = hass
+
+    # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+    with (
+        patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
+        patch.object(
+            config_flow.aiohttp_client,
+            "async_get_clientsession",
+            return_value=MagicMock(),
+        ),
     ):
-        # Initialize the config flow
-        flow = config_flow.IngeniumConfigFlow()
-        flow.hass = hass
-
-        # Step 1: User provides host
+        # Step 1: No data - User step asks for Hostname
         result = await flow.async_step_user({CONF_HOST: "192.168.1.100"})
 
         # Should proceed to devices step
-        assert result["type"] == "form"
-        assert result["step_id"] == "devices"
-
-        # Step 2: User selects to ignore availability (using section-based format)
-        result = await flow.async_step_devices(
-            {
-                f"{CONF_IGNORE_AVAILABILITY}_type_1": {CONF_IGNORE_AVAILABILITY: []},
-                f"{CONF_IGNORE_AVAILABILITY}_type_2": {CONF_IGNORE_AVAILABILITY: []},
-            }
-        )
-
-        # Should create the entry
-        assert result["type"] == "create_entry"
-        assert result["title"] == "Ingenium at 192.168.1.100"
-        assert isinstance(result["data"], dict)
-        assert result["data"][CONF_VERSION] == 1
-        assert result["data"][CONF_MAC] == "AA:BB:CC:DD:EE:FF"
-        assert result["data"][CONF_IGNORE_AVAILABILITY] == []
-        assert result["data"][CONF_DEVICE] == {
-            CONF_INSTALLATION_DATA: mock_installation_data
-        }
-
-
-@pytest.mark.asyncio
-async def test_config_flow_list_devices_with_ignore_selection(hass, mock_http):
-    """Test that step 2 shows a form with the bus devices and allows for ignoring their availability."""
-
-    # Patch the get_device_http method to return our mock
-    with patch.object(
-        config_flow.IngeniumConfigFlow, "get_device_http", return_value=mock_http
-    ):
-        # Initialize the config flow
-        flow = config_flow.IngeniumConfigFlow()
-        flow.hass = hass
-
-        # Step 1: User provides host
-        result = await flow.async_step_user({CONF_HOST: "192.168.1.100"})
-
-        # Step 2: Verify the form structure
         assert result["type"] == "form"
         assert result["step_id"] == "devices"
 
@@ -161,3 +151,170 @@ async def test_config_flow_list_devices_with_ignore_selection(hass, mock_http):
             assert options == expected_options, (
                 f"Expected options {expected_options} for {section_name}, got {options}"
             )
+
+
+@pytest.mark.asyncio
+async def test_config_flow_complete_simple_setup(
+    hass, mock_http, mock_installation_data
+):
+    """Test successful config flow setup with mocked HTTP responses."""
+
+    # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+    with (
+        patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
+        patch.object(
+            config_flow.aiohttp_client,
+            "async_get_clientsession",
+            return_value=MagicMock(),
+        ),
+    ):
+        # Initialize the config flow
+        flow = config_flow.IngeniumConfigFlow()
+        flow.hass = hass
+
+        # Step 1: User provides host
+        result = await flow.async_step_user({CONF_HOST: "192.168.1.100"})
+
+        # Should proceed to devices step
+        assert result["type"] == "form"
+        assert result["step_id"] == "devices"
+
+        # Step 2: User selects to ignore availability (using section-based format)
+        result = await flow.async_step_devices(
+            {
+                f"{CONF_IGNORE_AVAILABILITY}_type_26": {CONF_IGNORE_AVAILABILITY: []},
+                f"{CONF_IGNORE_AVAILABILITY}_type_47": {CONF_IGNORE_AVAILABILITY: []},
+            }
+        )
+
+        # Should create the entry
+        assert result["type"] == "create_entry"
+        assert result["title"] == "Ingenium at 192.168.1.100"
+        assert isinstance(result["data"], dict)
+        assert result["data"][CONF_VERSION] == 1
+        assert result["data"][CONF_MAC] == "AA:BB:CC:DD:EE:FF"
+        assert result["data"][CONF_IGNORE_AVAILABILITY] == []
+        assert result["data"][CONF_DEVICE] == {
+            CONF_INSTALLATION_DATA: mock_installation_data
+        }
+
+
+@pytest.mark.asyncio
+async def test_config_flow_list_devices_with_ignore_selection(
+    hass, mock_http, mock_installation_data
+):
+    """Test that step 2 shows a form with the bus devices and allows for ignoring their availability."""
+
+    # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+    with (
+        patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
+        patch.object(
+            config_flow.aiohttp_client,
+            "async_get_clientsession",
+            return_value=MagicMock(),
+        ),
+    ):
+        # Initialize the config flow
+        flow = config_flow.IngeniumConfigFlow()
+        flow.hass = hass
+
+        # Step 1: User provides host
+        await flow.async_step_user({CONF_HOST: "192.168.1.100"})
+
+        # Step 2: Verify the form structure
+        # Step 2: User selects to ignore availability (using section-based format)
+        result = await flow.async_step_devices(
+            {
+                f"{CONF_IGNORE_AVAILABILITY}_type_46": {CONF_IGNORE_AVAILABILITY: []},
+                f"{CONF_IGNORE_AVAILABILITY}_type_26": {
+                    CONF_IGNORE_AVAILABILITY: ["4-5"]
+                },
+            }
+        )
+
+        # Should create the entry
+        assert result["type"] == "create_entry"
+        assert result["title"] == "Ingenium at 192.168.1.100"
+        assert isinstance(result["data"], dict)
+        assert result["data"][CONF_VERSION] == 1
+        assert result["data"][CONF_MAC] == "AA:BB:CC:DD:EE:FF"
+        assert len(result["data"][CONF_IGNORE_AVAILABILITY]) == 1
+        assert result["data"][CONF_DEVICE] == {
+            CONF_INSTALLATION_DATA: mock_installation_data
+        }
+
+
+async def test_config_flow_v3_device(hass):
+    # Initialize the config flow
+    flow = config_flow.IngeniumConfigFlow()
+    flow.hass = hass
+
+    async def v3_device():
+        return True
+
+    mock_http = MagicMock()
+    mock_http.is_v3 = v3_device()
+
+    # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+    with (
+        patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
+        patch.object(
+            config_flow.aiohttp_client,
+            "async_get_clientsession",
+            return_value=MagicMock(),
+        ),
+    ):
+        # Step 1: V3 device = True results in form with error message
+        result = await flow.async_step_user({CONF_HOST: "192.168.1.100"})
+
+        # Should proceed to devices step
+        assert result["type"] == "form"
+        assert result["step_id"] == "user"
+        assert result["errors"] == {"base": "device_not_supported"}
+
+
+async def test_config_flow_http_errors(hass):
+    from asyncio.exceptions import TimeoutError
+    from custom_components.ingenium.exceptions import (
+        IngeniumHttpClientError,
+        IngeniumHttpServerError,
+        IngeniumHttpNetworkError,
+    )
+
+    # Initialize the config flow
+    flow = config_flow.IngeniumConfigFlow()
+    flow.hass = hass
+
+    async def v3_raise_exception(e):
+        raise e
+
+    async def v3_device():
+        return True
+
+    mock_http = MagicMock()
+
+    errors = {
+        "init_timeout": TimeoutError,
+        "network_error": IngeniumHttpNetworkError,
+        "server_communication_error": IngeniumHttpServerError,
+        "client_communication_error": IngeniumHttpClientError,
+    }
+    for expected_error_message in errors.keys():
+        # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+        with (
+            patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
+            patch.object(
+                config_flow.aiohttp_client,
+                "async_get_clientsession",
+                return_value=MagicMock(),
+            ),
+        ):
+            mock_http.is_v3 = v3_raise_exception(errors[expected_error_message])
+
+            # Step 1: V3 device = True results in form with error message
+            result = await flow.async_step_user({CONF_HOST: "192.168.1.100"})
+
+            # Should proceed to devices step
+            assert result["type"] == "form"
+            assert result["step_id"] == "user"
+            assert result["errors"] == {"base": expected_error_message}
