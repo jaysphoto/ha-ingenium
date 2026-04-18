@@ -19,4 +19,8 @@ if [ -f setup.py ] || [ -f pyproject.toml ]; then
   pip install -e . || true
 fi
 
+if [ -f .pre-commit-config.yaml ]; then
+  pre-commit install && pre-commit install-hooks
+fi
+
 echo "Bootstrap complete."
