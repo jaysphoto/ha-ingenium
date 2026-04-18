@@ -19,7 +19,6 @@ async def test_setup_entry(hass):
 
     with (
         patch.object(Device, "async_initialize_device", return_value=True),
-        patch.object(Device, "get_devices", return_value=[]),
         patch.object(
             hass.config_entries, "async_forward_entry_setups", new_callable=AsyncMock
         ) as mock_forward,

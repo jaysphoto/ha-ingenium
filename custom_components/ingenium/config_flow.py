@@ -47,10 +47,10 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
                 http = self.get_device_http(host=user_info[CONF_HOST])
 
                 async with async_timeout.timeout(5):
-                    is_v3 = await http.is_v3()
+                    is_v3 = await http.is_v3
                     assert is_v3 is False, "Device does appears to be a KNX device"
                     conf = await http.config
-                    installation_data = await http.installation_data()
+                    installation_data = await http.installation_data
 
             except IngeniumHttpNetworkError:
                 errors["base"] = "network_error"
@@ -67,7 +67,9 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_VERSION: VERSION,
                     CONF_HOST: user_info[CONF_HOST],
                     CONF_MAC: conf.get("MAC", "unknown"),
-                    CONF_DEVICE: {CONF_INSTALLATION_DATA: installation_data},
+                    CONF_DEVICE: {
+                        CONF_INSTALLATION_DATA: [d.copy() for d in installation_data]
+                    },
                 }
                 return await self.async_step_devices(user_info)
 
@@ -102,20 +104,16 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
 
                 self.config[CONF_IGNORE_AVAILABILITY] = ignored_devices
-                self.config[CONF_DEVICE][CONF_INSTALLATION_DATA] = [
-                    d.to_dict()
-                    for d in self.config[CONF_DEVICE][CONF_INSTALLATION_DATA]
-                ]
 
-                _LOGGER.debug(f"Creating entry with config data: {self.config}")
                 return self.async_create_entry(
                     title=f"{ATTR_MANUFACTURER} at {self.config[CONF_HOST]}",
                     data=self.config,
                 )
 
         devices_by_type: dict[int, list] = {}
-        for device in self.config["device"][CONF_INSTALLATION_DATA]:
-            devices_by_type.setdefault(device.type, []).append(device)
+
+        for device in self.config[CONF_DEVICE][CONF_INSTALLATION_DATA]:
+            devices_by_type.setdefault(device["type"], []).append(device)
 
         _LOGGER.debug("Device types = %s", list(devices_by_type.keys()))
 
@@ -123,7 +121,10 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
         for device_type in sorted(devices_by_type.keys()):
             devices = devices_by_type[device_type]
             options = [
-                {"value": f"{device.address}-{device.output}", "label": device.label}
+                {
+                    "value": f"{device['address']}-{device['output']}",
+                    "label": device["label"],
+                }
                 for device in devices
             ]
             section_key = f"{CONF_IGNORE_AVAILABILITY}_type_{device_type}"

@@ -32,7 +32,9 @@ class BusDeviceType(Enum):
     OTHER = 0
 
 
-BusDeviceTypeNames = {47: BusDeviceType.AC_GATEWAY_LG.name}
+BusDeviceTypeNames = {
+    BusDeviceType.AC_GATEWAY_LG.value: BusDeviceType.AC_GATEWAY_LG.name
+}
 
 
 @dataclass

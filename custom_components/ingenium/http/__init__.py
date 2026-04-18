@@ -27,15 +27,7 @@ class IngeniumHttpInstallEntry(dict):
         self._output = output
         self._address = address
 
-    def to_obj(self) -> object:
-        return {
-            "label": self._label,
-            "type": self._type,
-            "output": self._output,
-            "address": self._address,
-        }
-
-    def to_dict(self) -> dict:
+    def copy(self) -> dict:
         return dict(
             label=self._label,
             type=self._type,

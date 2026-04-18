@@ -21,6 +21,9 @@ class IngeniumHttpLocal:
         self._host = host
         self._port = port
         self._config = None
+        self._install_dat = None
+        self._is_v3 = None
+        self._sw_version = None
 
     @property
     async def config(self) -> dict:
@@ -34,32 +37,42 @@ class IngeniumHttpLocal:
 
         return self._config
 
+    @property
     async def installation_data(self) -> list[IngeniumHttpInstallEntry]:
-        res = await self._request("GET", "/Instal.dat")
-        return self._parse_installation_data(await res.text())
+        if self._install_dat is None:
+            res = await self._request("GET", "/Instal.dat")
+            self._install_dat = self._parse_installation_data(await res.text())
 
+        return self._install_dat
+
+    @property
     async def is_v3(self) -> bool:
-        try:
-            # Test /v3_0 uri, detects KNX device
-            rsp = await self._request("GET", "/v3_0")
-            return len(await rsp.text()) > 0
+        if self._is_v3 is None:
+            try:
+                # Test /v3_0 uri, detects KNX device
+                rsp = await self._request("GET", "/v3_0")
+                self._is_v3 = len(await rsp.text()) > 0
 
-        except IngeniumHttpClientError as e:
-            _LOGGER.debug(
-                "Received error response for /v3_0, assuming non-KNX device: %s", str(e)
-            )
+            except IngeniumHttpClientError as e:
+                _LOGGER.debug(
+                    "Received error response for /v3_0, assuming non-KNX device: %s",
+                    str(e),
+                )
+                self._is_v3 = False
 
-        return False
+        return self._is_v3
 
+    @property
     async def sw_version(self) -> str:
-        ver = "unknown"
-        try:
-            res = await self._request("GET", "/SiDEVer")
-            ver = await res.text() or ver
-        except IngeniumHttpClientError:
-            pass
+        if self._sw_version is None:
+            try:
+                res = await self._request("GET", "/SiDEVer")
+                self._sw_version = await res.text()
+            except IngeniumHttpClientError:
+                self._sw_version = False
+                pass
 
-        return ver
+        return self._sw_version
 
     def _parse_installation_data(self, data: str):
         """Process device data from /Instal.dat response."""
