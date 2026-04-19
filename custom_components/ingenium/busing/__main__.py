@@ -1,4 +1,4 @@
-"""Use busing as a CLI."""
+"""Use BUSing as a CLI."""
 
 import argparse
 import asyncio
@@ -6,16 +6,12 @@ import logging
 
 from comm import IngeniumBUSingCommunication as busing
 
-LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
 
-async def main(
-    host: str,
-    port: int,
-    raw_msg: str | None,
-) -> None:
+async def main(host: str, port: int, raw_msg: str | None, bus_init=bool) -> None:
     """CLI method for library."""
-    LOGGER.info("Starting IngeniumBUSingCommunication")
+    _LOGGER.info("Starting IngeniumBUSingCommunication")
 
     client = busing(host, port)
 
@@ -45,28 +41,25 @@ async def main(
         """
         await client.send_message_raw(bytes.fromhex(raw_msg))
         response = await client.await_response()
-        LOGGER.info("Received response: %s", response)
+        _LOGGER.info("Received response: %s", response)
 
         return
 
-    # Start the listener task and loop forever
-    task = asyncio.create_task(
-        client.listener(
-            lambda msgs: [LOGGER.info("Received message: %s", msg) for msg in msgs]
+    # Send request to dump all device registers on the BUSing interface
+    if bus_init:
+        # await client.send_message_raw(bytes.fromhex('ffffffff0a0000'))
+        await client.send_message(
+            _origin=0xFFFF, destination=0xFFFF, command=10, data1=0, data2=0
         )
-    )
-
-    await asyncio.sleep(1)
 
     try:
-        while True:
-            await asyncio.sleep(1)
+        # Start the listener task and loop forever
+        await client.listener(
+            lambda msgs: [_LOGGER.info("Received message: %s", msg) for msg in msgs]
+        )
 
     except asyncio.CancelledError:
         pass
-
-    finally:
-        task.cancel()
 
 
 if __name__ == "__main__":
@@ -84,17 +77,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d", "--debug", action="store_true", help="Show debug log messages"
     )
+    parser.add_argument(
+        "--bus-init",
+        action="store_true",
+        help="Send request for all bus/device registers",
+    )
     args = parser.parse_args()
 
-    LOG_LEVEL = logging.INFO
     if args.debug:
-        LOG_LEVEL = logging.DEBUG
-    logging.basicConfig(format="%(message)s", level=LOG_LEVEL)
+        logging.basicConfig(
+            format="%(name)s - %(levelname)s: %(message)s", level=logging.DEBUG
+        )
+    else:
+        logging.basicConfig(format="%(message)s", level=logging.INFO)
 
     asyncio.run(
         main(
-            host=args.host,
-            port=args.port,
-            raw_msg=args.raw_msg,
+            host=args.host, port=args.port, raw_msg=args.raw_msg, bus_init=args.bus_init
         )
     )
