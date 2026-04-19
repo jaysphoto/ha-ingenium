@@ -28,12 +28,15 @@ _LOGGER = logging.getLogger(__name__)
 class BusDeviceType(Enum):
     """Device types."""
 
+    ACTUATOR_ALL_NOTHING = 24
     AC_GATEWAY_LG = 47
+
     OTHER = 0
 
 
 BusDeviceTypeNames = {
-    BusDeviceType.AC_GATEWAY_LG.value: BusDeviceType.AC_GATEWAY_LG.name
+    BusDeviceType.AC_GATEWAY_LG.value: BusDeviceType.AC_GATEWAY_LG.name,
+    BusDeviceType.ACTUATOR_ALL_NOTHING.value: BusDeviceType.ACTUATOR_ALL_NOTHING.name,
 }
 
 
@@ -171,4 +174,3 @@ class Device(DataUpdateCoordinator):
                 entity_updates[context]["bus_messages"].append(msg)
 
         self.async_set_updated_data(entity_updates)
-        pass
