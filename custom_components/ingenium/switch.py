@@ -127,7 +127,7 @@ class IngeniumBinarySwitch(CoordinatorEntity, SwitchEntity):
 
     def _read_bus_message(self, msg) -> bool:
         if msg["data1"] == 1:  # All outputs state
-            self._is_on = True if msg["data2"] & (2 ^ self._output) else False
+            self._is_on = bool(msg["data2"] & 2**self._output)
             return True
         elif msg["data1"] == 2:  # Change state command for one output
             if msg["data2"] == self._output:
