@@ -1,0 +1,152 @@
+from unittest.mock import MagicMock, Mock
+
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.ingenium import switch as ingenium_switch
+from custom_components.ingenium.const import ATTR_MANUFACTURER, DOMAIN
+from custom_components.ingenium.device import BusDeviceType, BUSDevice
+
+
+async def test_async_setup_entry_adds_binary_switch_entities(hass):
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    coordinator = Mock()
+    coordinator.data = {}
+    coordinator.async_add_listener = MagicMock(return_value=None)
+    coordinator.async_remove_listener = MagicMock(return_value=None)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [
+            BUSDevice(
+                address=1,
+                label="Output 4",
+                device_type=BusDeviceType.ACTUATOR_ALL_NOTHING,
+                type=24,
+                output=4,
+            ),
+            BUSDevice(
+                address=1,
+                label="Output 5",
+                device_type=BusDeviceType.ACTUATOR_ALL_NOTHING,
+                type=24,
+                output=5,
+            ),
+        ],
+    }
+
+    async_add_entities = MagicMock()
+
+    await ingenium_switch.async_setup_entry(hass, entry, async_add_entities)
+
+    async_add_entities.assert_called_once()
+    added_entities = async_add_entities.call_args[0][0]
+
+    assert len(added_entities) == 2
+    assert {entity._output for entity in added_entities} == {4, 5}
+    assert all(entity._address == 1 for entity in added_entities)
+    assert all(entity._model == "2E2S/2E2S-30A" for entity in added_entities)
+    assert {entity.unique_id for entity in added_entities} == {
+        "A123B_busing_1_4",
+        "A123B_busing_1_5",
+    }
+    assert {entity.name.startswith("Output ") for entity in added_entities}
+    assert added_entities[1].device_info == added_entities[0].device_info
+
+
+async def test_ingenium_binary_switch_device_info(hass):
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    coordinator = Mock()
+    coordinator.data = {}
+    coordinator.async_add_listener = MagicMock(return_value=None)
+    coordinator.async_remove_listener = MagicMock(return_value=None)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    entity = ingenium_switch.IngeniumBinarySwitch(
+        entry, address=1, output=1, label="Test Switch", model="2E2S"
+    )
+
+    assert entity.device_info["identifiers"] == {(DOMAIN, 1)}
+    assert entity.device_info["name"] == "Actuators 1"
+    assert entity.device_info["manufacturer"] == ATTR_MANUFACTURER
+    assert entity.device_info["model"] == "2E2S"
+    assert entity.device_info["via_device"] == (DOMAIN, entry.entry_id)
+
+
+async def test_ingenium_binary_switch_updates_state(hass):
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    coordinator = Mock()
+    coordinator.data = {}
+    coordinator.async_add_listener = MagicMock(return_value=None)
+    coordinator.async_remove_listener = MagicMock(return_value=None)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    output = 4
+    entity = ingenium_switch.IngeniumBinarySwitch(
+        entry, address=1, output=output, label="Test Switch", model="2E2S"
+    )
+    entity.async_write_ha_state = MagicMock()
+
+    # Construct BUSing message of activating the output
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 2, "data2": output},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    assert entity.is_on is True
+    entity.async_write_ha_state.assert_called_once()
+
+    entity.async_write_ha_state.reset_mock()
+
+    # Construct BUSing response message of deactivating the output
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 2, "data2": (output + 8)},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    assert entity.is_on is False
+    entity.async_write_ha_state.assert_called_once()
+
+    entity.async_write_ha_state.reset_mock()
+
+    # Construct BUSing response message for another output
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 2, "data2": (output + 1)},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    entity.async_write_ha_state.assert_not_called()
