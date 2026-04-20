@@ -150,3 +150,81 @@ async def test_ingenium_binary_switch_updates_state(hass):
     entity._handle_coordinator_update()
 
     entity.async_write_ha_state.assert_not_called()
+
+
+async def test_ingenium_binary_switch_read_outputs(hass):
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    coordinator = Mock()
+    coordinator.data = {}
+    coordinator.async_add_listener = MagicMock(return_value=None)
+    coordinator.async_remove_listener = MagicMock(return_value=None)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    entity = ingenium_switch.IngeniumBinarySwitch(
+        entry, address=1, output=4, label="Test Switch", model="2E2S"
+    )
+    entity.async_write_ha_state = MagicMock()
+
+    # Construct BUSing message where all outputs are off
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 1, "data2": 0},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    assert entity.is_on is False
+    entity.async_write_ha_state.assert_called_once()
+    entity.async_write_ha_state.reset_mock()
+
+    # Construct BUSing message where only output 4 is on
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 1, "data2": 16},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    assert entity.is_on is True
+    entity.async_write_ha_state.assert_called_once()
+    entity.async_write_ha_state.reset_mock()
+
+    # Construct BUSing message where only output 5 is on
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 1, "data2": 32},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    assert entity.is_on is False
+    entity.async_write_ha_state.assert_called_once()
+    entity.async_write_ha_state.reset_mock()
+
+    # Construct BUSing message where output 4+5 are on
+    coordinator.data = {
+        1: {
+            "bus_messages": [
+                {"command": 4, "data1": 1, "data2": 48},
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    assert entity.is_on is True
+    entity.async_write_ha_state.assert_called_once()
