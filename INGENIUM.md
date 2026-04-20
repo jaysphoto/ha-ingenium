@@ -1,15 +1,51 @@
-# Reverse engineering notes of Ingenium devices
+# Ingenium
 
 ## Architecture
 
 tbc.
 
-## Global system configuration
+## BUSing device communication
 
-```
-Globals.tipoConexion == 0 // Ingenium (Cloud) Webserver
-Globals.tipoConexion != 0 // Local network connection to Touch (wall-)device
-```
+The installed devices (Actuators, Lights, AC etc.) are all wired together on a low-voltage BUSing hardware interface. Ingenium Smart touch devices connect to this bus to control the devices, and also run a service (`ETHBUSIII` daemon) that functions as a IP-based gateway to the BUSing hardware interface.
+
+Once a connection is established to this service (running on `tcp/12347`), any BUSing messages (datagrams) will start flowing in, as 9-byte sequences (datagrams).
+
+It is also possible to push commands back onto the same bus, in 7-byte sized datagrams.
+
+### Message format
+
+The general format of a BUSing message is:
+
+| | Size | Description |
+| ---- | --- | --- |
+`Command` | `byte` | Type of request or response
+`Destination` | `double` | BUS device address
+`Origin` | `double` | BUS device address
+`Data1` | `byte` |
+`Data2` | `byte` |
+
+
+### BUSing commands
+
+Direction | Type | Value
+--|--|--
+Reply | ACK (??) response to request | 1
+Reply | Send requested register value | 2
+Request | Report register value | 3
+Reply | Dump of register values | 4
+Request | Report all register values | 10
+Request | Read device EEPROM value | ??
+Request | Write device EEPROM value | ??
+
+### Datagram encoding/decoding
+
+tbc.
+
+# Smart Touch device
+
+Inside the home, Ingenium [touch devices](https://web.ingeniumsl.com/website/en/products/displays-and-apps/) act as both a user interface and a local web server.
+
+Below are some reverse engineering notes that provide more insight in how this device functions.
 
 ## Networking
 
@@ -41,9 +77,18 @@ Initialization of the client is initially web based (port 8000 webserver)
 
 Android app : `com.ingenium.ingeniumasc`
 
-## 1. Ingenium MainThread cargar activity
+## Initialization sequence
+
+Once the app is configured (with the local IP address  or Cloud username/password) and the smart touch device or ETHbus gateway is accessed, the app goes through the folowing general sequence
+
+### 1. Ingenium MainThread cargar activity
 
 Determine connection type (cloud vs. local network) and connection state
+
+```
+Globals.tipoConexion == 0 // Cloud (Ingenium Server)
+Globals.tipoConexion != 0 // Local network connection to Smart touch (wall-)device
+```
 
 ```
 if (Globals.tipoConexion == 0) {
@@ -62,7 +107,7 @@ if (Globals.tipoConexion == 0) {
 new cargaAsincronaTask().execute(new Void[0]);
 ```
 
-## 2. Asynchronous initialization of "Project"
+### 2. Asynchronous initialization of "Project"
 
 Irrespective of the connection type, the initialization makes local copies of the Ingenium device configuration (filesystem) and initializes the Planos (screens) and Devices (dispositivos):
 
@@ -79,24 +124,17 @@ Globals.check_infobar_out_mode();
 return null;
 ```
 
-## 3. Reading current state
-Ingenium App opens with messages that trigger a (full?) devices status dump:
+### 3. Reading current state
+
+Ingenium App opens with sending a BUSing message that trigger a (full?) devices status dump:
 
 ```
 Received: {'raw': 'fefe0afffffefe0000', 'command': 10, 'origin': 65535, 'destination': 65278, 'data1': 0, 'data2': 0}
 Received: {'raw': 'fefe01fefe00ff0000', 'command': 1, 'origin': 65278, 'destination': 255, 'data1': 0, 'data2': 0}
 ```
 
-Messages are decoded in 9-bytes sequences:
-```
-p_result2.comando = recBuffer[2];
-p_result2.destino = (short) (
-    (recBuffer[3] << 8) + (recBuffer[4] & 255));
-p_result2.origen = (short) (
-    (recBuffer[5] << 8) + (recBuffer[6] & 255));
-p_result2.dato1 = recBuffer[7] & 255;
-p_result2.dato2 = recBuffer[8] & 255;
-```
+See [communication](#device-communication).
+
 ## SQLite database
 
 Basic local (Android) SQLite database
@@ -137,9 +175,11 @@ Creates database structure and loads stored connections (web or local)
         con.conexion = getPreferenceScreen().getSharedPreferences().getBoolean(KEY_LOCAL_ACTIVATION, false) ? "local" : "remota";
 ```
 
-# ETHBUSIII (BUSing) communication
+## Device communication
 
-## General binary format
+The App usees the [BUSing interface](#busing-device-communication) (over IP) to read/write bus devices registers, ie. to switch on a device, read/write the state of an actuator etc.
+
+### BUSing Network connection and messages
 
 Cloud differs from local webserver:
 
@@ -168,3 +208,22 @@ Cloud differs from local webserver:
                 }
 
 ```
+
+
+
+### Reading datagrams
+
+Messages are decoded in 9-bytes sequences:
+```
+p_result2.comando = recBuffer[2];
+p_result2.destino = (short) (
+    (recBuffer[3] << 8) + (recBuffer[4] & 255));
+p_result2.origen = (short) (
+    (recBuffer[5] << 8) + (recBuffer[6] & 255));
+p_result2.dato1 = recBuffer[7] & 255;
+p_result2.dato2 = recBuffer[8] & 255;
+```
+
+### Sending datagrams
+
+tbc.
