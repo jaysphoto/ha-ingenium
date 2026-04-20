@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from .const import DOMAIN
 from .device import Device
 
-PLATFORMS: list[Platform] = [Platform.CLIMATE]
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

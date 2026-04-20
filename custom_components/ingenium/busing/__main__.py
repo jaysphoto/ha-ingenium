@@ -29,6 +29,11 @@ async def main(host: str, port: int, raw_msg: str | None, bus_init=bool) -> None
                 ....
             command=3, origin=-1, destination=1, data1=1, data2=1)) -> ffff0001030101. # READ STATUS OF SWITCH DEVICE (Actuador)
                 Received datagram: {'raw': 'fefe01fefe00012020', 'command': 1, 'origin': 65278, 'destination': 1, 'data1': 32, 'data2': 32}
+            command=4, origin=-1, destination=1, data1=2, data2=5)) -> ffff0001040205 # ENABLE OUTPUT 5 SWITCH DEVICE (Actuador)
+                Received response: {'raw': 'fefe01fefe00010205', 'command': 1, 'origin': 65278, 'destination': 1, 'data1': 2, 'data2': 5}
+            command=4, origin=-1, destination=1, data1=2, data2=13)) -> ffff000104020d # DISABLE OUTPUT 5 SWITCH DEVICE (Actuador)
+                Received response: {'raw': 'fefe01fefe0001020d', 'command': 1, 'origin': 65278, 'destination': 1, 'data1': 2, 'data2': 13}
+
             command=10, origin=-1, destination=11, data1=0, data2=0 -> ffff000b0a0000. # READ ALL REGISTERS OF AC GATEWAY (Termostato)
                 Received datagram: {'raw': 'fefe04000b000b0002', 'command': 4, 'origin': 11, 'destination': 11, 'data1': 0, 'data2': 2}
                 Received datagram: {'raw': 'fefe04000b000b0113', 'command': 4, 'origin': 11, 'destination': 11, 'data1': 1, 'data2': 19}

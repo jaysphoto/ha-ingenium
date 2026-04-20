@@ -1,0 +1,171 @@
+"""
+Support for Ingenium BUSing Actuators
+
+Received message: {'raw': 'fefe04000100010120', 'command': 4, 'origin': 1, 'destination': 1, 'data1': 1, 'data2': 32}
+  data1:0 == Read/Write the state of inputs
+    Device  Type  Bit 7 Bit 6 Bit 5 Bit 4 Bit 3 Bit 2 Bit 1 Bit 0
+            6E6S  E6    E5    E4    E3    E2    E1    —     —
+            4E4S  E4    E3    E2    E1    —     —     —     —
+            2E2S  E2    E1    —     —     —     —     —     —
+  data1:1 == Read/Write state of outputs
+    Device  Type  Bit 7 Bit 6 Bit 5 Bit 4 Bit 3 Bit 2 Bit 1 Bit 0
+            6E6S  —     —     Z6    Z5    Z4    Z3    Z2    Z1
+            4E4S  —     —     Z4    Z3    Z2    Z1    —     —
+            2E2S  —     —     Z2    Z1    —     —     —     —
+
+Received message: {'raw': 'fefe0400010001ff01', 'command': 4, 'origin': 1, 'destination': 1, 'data1': 255, 'data2': 1}
+  NOTE: ALL DEVICES RESPONDS TO ADDRESS 255, IN ADDITION TO THE ONE THEY HAVE
+  ADDRESSED. A SINGLE DEVICE, MAKE A DIAGNOSTIC TO ADDRESS 255, TO GET TO KNOW
+  YOUR ADDRESS.
+"""
+
+import logging
+
+from homeassistant.core import HomeAssistant
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+)
+
+from .const import ATTR_MANUFACTURER, DOMAIN, CONF_MAC
+from .device import BusDeviceType
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    _hass: HomeAssistant,
+    config_entry: dict,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the Climate Device sensors."""
+
+    actuators = {}
+
+    # Structure Actuator devices by address and outputs
+    for dev in config_entry.runtime_configuration["devices"]:
+        if dev.device_type in [BusDeviceType.ACTUATOR_ALL_NOTHING]:
+            if dev.address in actuators.keys():
+                actuators[dev.address][dev.output] = dev
+            else:
+                actuators[dev.address] = {dev.output: dev}
+
+    _LOGGER.info(f"Actuator switches found: {actuators}")
+
+    for address in actuators.keys():
+        # Concatenated string of outputs
+        # outputs = '-'.join()
+        outputs = list(actuators[address].keys())
+        outputs.sort()
+        if outputs == [4, 5]:
+            model = "2E2S/2E2S-30A"
+        elif outputs == [2, 3, 4, 5]:
+            model = "4E4S/4E4S-30A/4E4S-F4A"
+        elif outputs == [0, 1, 2, 3, 4, 5]:
+            model = "6E6S/6E6S-F2A"
+        elif outputs == [0, 1, 2, 3, 4, 5, 6, 7]:
+            model = "4E8S"
+        else:
+            _LOGGER.warning(
+                f"Unknown BUSing actuator device, address={address}, outputs={outputs}"
+            )
+            break
+
+        _LOGGER.info(f"Adding Type {model} BUSing actuator at address={address}")
+
+        async_add_entities(
+            [
+                IngeniumBinarySwitch(
+                    config_entry, dev.address, dev.output, dev.label, model
+                )
+                for dev in actuators[address].values()
+            ]
+        )
+
+
+class IngeniumBinarySwitch(CoordinatorEntity, SwitchEntity):
+    def __init__(
+        self,
+        config_entry: dict,
+        address: int,
+        output: int = 0,
+        label: str | None = None,
+        model: str = "",
+    ):
+        super().__init__(config_entry.runtime_configuration["coordinator"])
+
+        self._coordinator = config_entry.runtime_configuration["coordinator"]
+        self._parent_config_entry = config_entry
+        self._address = address
+        self._output = output
+        self._model = model
+        self._is_on = None
+        self._attr_has_entity_name = True
+        self._attr_name = label
+        self._attr_unique_id = (
+            f"{config_entry.data.get(CONF_MAC)}_busing_{address}_{output}"
+        )
+
+    def _handle_coordinator_update(self) -> None:
+        if self._address not in self.coordinator.data:
+            return
+
+        service_call = self.coordinator.data[self._address]
+
+        res = [
+            self._read_bus_message(msg)
+            for msg in service_call["bus_messages"]
+            if msg["command"] == 4
+            if "bus_messages" in service_call
+        ]
+
+        # Request update of HA state if any message resulted in an update to the entity state
+        if any(res):
+            _LOGGER.info("Updating UI state") or self.async_write_ha_state()
+
+    def _read_bus_message(self, msg) -> bool:
+        if msg["data1"] == 1:  # All outputs state
+            self._is_on = True if msg["data2"] & (2 ^ self._output) else False
+            return True
+        elif msg["data1"] == 2:  # Change state command for one output
+            if msg["data2"] == self._output:
+                _LOGGER.debug(f"Switching ON {msg['data2']} ==  {self._output}")
+                self._is_on = True
+            elif msg["data2"] == (self._output + 8):
+                _LOGGER.debug(f"Switching OFF {msg['data2']} ==  {self._output} + 8")
+                self._is_on = False
+            else:
+                _LOGGER.debug(
+                    f"Ignoring: {msg['data2']} !=  {self._output} (My ON state) != {self._output + 8} (My OFF state)"
+                )
+                return False
+
+            return True
+
+        return False
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if the switch is on."""
+        return self._is_on
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return DeviceInfo(
+            identifiers={
+                # Serial numbers are unique identifiers within a specific domain
+                (DOMAIN, self._address)
+            },
+            name=f"Actuators {self._address}",
+            manufacturer=ATTR_MANUFACTURER,
+            model=self._model,
+            via_device=(DOMAIN, self._parent_config_entry.entry_id),
+        )
+
+    @property
+    def name(self):
+        """Name of the entity."""
+        return self._attr_name
