@@ -1,13 +1,12 @@
-"""Support for Ingenium climate gateways."""
-
-import logging
+"""Support for Ingenium AC gateway devices as CLIMATE platform types"""
 
 from homeassistant.core import HomeAssistant
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import UnitOfTemperature
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
     HVACMode,
+    HVACAction,
     FAN_OFF,
     FAN_AUTO,
     FAN_LOW,
@@ -16,14 +15,10 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-)
 
 from .const import ATTR_MANUFACTURER, DOMAIN, CONF_MAC
-from .device import BusDeviceType
-
-_LOGGER = logging.getLogger(__name__)
+from .device import Device, BusDeviceType
+from .entity import BaseEntity
 
 
 async def async_setup_entry(
@@ -36,85 +31,77 @@ async def async_setup_entry(
     # Add devices
     async_add_entities(
         [
-            IngeniumClimate(config_entry, dev.address, dev.output, dev.label)
+            IngeniumClimate(
+                config_entry,
+                dev,
+                ClimateEntityFeature(
+                    ClimateEntityFeature.TARGET_TEMPERATURE
+                    + ClimateEntityFeature.FAN_MODE
+                ),
+                "BUSing-LGAC-I",
+            )
             for dev in config_entry.runtime_configuration["devices"]
             if dev.device_type in [BusDeviceType.AC_GATEWAY_LG]
         ]
     )
 
 
-class IngeniumClimate(CoordinatorEntity, ClimateEntity):
+class IngeniumClimate(BaseEntity, ClimateEntity):
     def __init__(
         self,
         config_entry: dict,
-        address: int,
-        unit_id: int = 0,
-        label: str | None = None,
+        dev: Device,
+        features: ClimateEntityFeature,
+        model: str = None,
     ):
-        super().__init__(config_entry.runtime_configuration["coordinator"])
-        features: ClimateEntityFeature = ClimateEntityFeature(0)
-        features |= ClimateEntityFeature.TARGET_TEMPERATURE
-        features |= ClimateEntityFeature.FAN_MODE
+        super().__init__(config_entry, dev, model)
 
-        self._parent_config_entry = config_entry
-        self._address = address
-        self._unit_id = unit_id
+        self._unit_id = dev.output
         self._attr_has_entity_name = True
-        self._attr_name = label
-        self._attr_unique_id = (
-            f"{config_entry.data.get(CONF_MAC)}_busing_{address}_unit_{unit_id}"
-        )
-        self._attr_temperature_unit = "°C"
-        self._attr_hvac_modes = ["off", "heat", "cool", "auto"]
-        self._attr_hvac_mode = "off"
-        self._attr_precision = 0.5
-        self._attr_supported_features = features
-        self.hvac_modes = [
-            HVACMode.AUTO,
-            HVACMode.COOL,
-            HVACMode.HEAT,
-            HVACMode.DRY,
-            HVACMode.FAN_ONLY,
+        self._attr_name = dev.label
+        self._attr_unique_id = f"{config_entry.data.get(CONF_MAC)}_busing_{self._address}_unit_{self._unit_id}"
+        self._attr_hvac_mode = None
+        self._attr_hvac_modes = [
             HVACMode.OFF,
+            HVACMode.COOL,
+            HVACMode.AUTO,
+            HVACMode.DRY,
+            HVACMode.HEAT,
         ]
-        self.fan_mode = None
-        self.fan_modes = [FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH]
+        if features | ClimateEntityFeature.FAN_MODE:
+            self._attr_fan_mode = None
+            self._attr_fan_modes = [FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH]
+        if features | ClimateEntityFeature.TARGET_TEMPERATURE:
+            self._attr_current_temperature = None
+            self._attr_target_temperature = None
+            self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+            self._attr_precision = 0.5
+        self._attr_supported_features = features
 
-    def _handle_coordinator_update(self) -> None:
-        if self._address not in self.coordinator.data:
-            return
-
-        service_call = self.coordinator.data[self._address]
-
+    def _bus_message_filter(self, msg) -> bool:
         # Note: This type of device handles up to 63 units with 4 registers each:
-        #   data1 == register + self._unit_id * 4
-        # Unit Id 0 = data1: 0-4
-        # Unit Id 1 = data1: 1-5
+        #   data1 == register(0-3) + self._unit_id * 4
+        # Unit Id 0 = data1: 0-3
+        # Unit Id 1 = data1: 4-7
         # ..
         # Unit Id 63 = data1: 252 - 255
-        res = [
-            self._read_bus_message(msg)
-            for msg in service_call["bus_messages"]
-            if msg["command"] == 4
-            if msg["data1"] >= (self._unit_id * 4)
-            and msg["data1"] < (self._unit_id * 4 + 4)
-            if "bus_messages" in service_call
-        ]
-        # Request update of HA state if any message resulted in an update to the entity state
-        if any(res):
-            _LOGGER.info("Updating UI state")
-            self.async_write_ha_state()
+        return msg["data1"] >= (self._unit_id * 4) and msg["data1"] < (
+            self._unit_id * 4 + 4
+        )
 
     def _read_bus_message(self, msg) -> bool:
         if msg["data1"] % 4 == 0:  # estado
             if msg["data2"] & 3 == 3:  # AC is ON
-                self._attr_state = STATE_ON
+                self._attr_available = True
+                self._attr_hvac_action = None
             elif msg["data2"] & 3 == 2:  # AC is OFF
-                self._attr_state = STATE_OFF
+                self._attr_available = True
+                self._attr_hvac_action = HVACAction.OFF
             elif msg["data2"] & 3 == 0:  # AC controls unavailable
-                self._attr_state = STATE_UNAVAILABLE
+                self._attr_available = False
             else:
-                return
+                # Skip UI update
+                return False
 
         elif msg["data1"] % 4 == 1:  # modoFuncionamiento
             if msg["data2"] < 16:
@@ -142,25 +129,38 @@ class IngeniumClimate(CoordinatorEntity, ClimateEntity):
                 elif msg["data2"] & 0x0F == 4:
                     self._attr_hvac_mode = HVACMode.HEAT
         elif msg["data1"] % 4 == 2:  # consigna
-            self.target_temperature = msg["data2"] + 15
+            self._attr_target_temperature = msg["data2"] + 15
         elif msg["data1"] % 4 == 3:  # ambiente
             if (164 - msg["data2"]) / 2 > 50:
-                self.current_temperature = 0
-            else:
-                self.current_temperature = (164 - msg["data2"]) / 2
+                return False
+
+            self._attr_current_temperature = (164 - msg["data2"]) / 2
 
         return True
 
+    # The device will report HVAC/Fan Mode, temperature setting even when OFF, therefor
+    # we override some properties to None to prevent the device showing up in the UI
+    # as if active.
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return the device info."""
-        return DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, self._address)
-            },
-            name=f"LG-I {self._address}",
-            manufacturer=ATTR_MANUFACTURER,
-            model="BUSing-LGAC-I",
-            via_device=(DOMAIN, self._parent_config_entry.entry_id),
-        )
+    def hvac_mode(self) -> HVACMode | None:
+        if self._attr_hvac_action == HVACAction.OFF:
+            return HVACMode.OFF
+
+        """Return hvac operation ie. heat, cool mode."""
+        return self._attr_hvac_mode
+
+    @property
+    def current_temperature(self) -> float | None:
+        if self._attr_hvac_action == HVACAction.OFF:
+            return None
+
+        """Return the current temperature."""
+        return self._attr_current_temperature
+
+    @property
+    def target_temperature(self) -> float | None:
+        if self._attr_hvac_action == HVACAction.OFF:
+            return None
+
+        """Return the temperature we try to reach."""
+        return self._attr_target_temperature

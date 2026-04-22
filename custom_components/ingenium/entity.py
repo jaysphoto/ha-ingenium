@@ -35,7 +35,7 @@ class BaseEntity(CoordinatorEntity, Entity):
             for msg in service_call["bus_messages"]
             if msg["command"] == 4
             if "bus_messages" in service_call
-            if self._bus_message_filter
+            if self._bus_message_filter(msg)
         ]
         # Request update of HA state if any message resulted in an update to the entity state
         if any(res):
