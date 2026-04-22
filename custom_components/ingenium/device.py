@@ -88,6 +88,7 @@ class Device(DataUpdateCoordinator):
 
         dr = device_registry.async_get(self.hass)
         dr.async_get_or_create(
+            name=f"smart_touch_{self._config_entry.data[CONF_MAC]}",
             config_entry_id=self._config_entry.entry_id,
             connections={
                 (
@@ -95,10 +96,9 @@ class Device(DataUpdateCoordinator):
                     self._config_entry.data[CONF_MAC],
                 )
             },
-            # identifiers={
-            #     (DOMAIN, api.config.bridge_id),
-            #     (DOMAIN, api.config.bridge_device.id),
-            # },
+            identifiers={
+                (DOMAIN, self._config_entry.data[CONF_MAC]),
+            },
             manufacturer=ATTR_MANUFACTURER,
             # name=api.config.name,
             # model_id=api.config.model_id,
