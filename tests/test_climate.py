@@ -552,3 +552,60 @@ async def test_ingenium_climate_multiple_messages_in_update(hass, device_1, feat
     assert entity.current_temperature == 25
     # async_write_ha_state should be called once for the update
     entity.async_write_ha_state.assert_called_once()
+
+
+async def test_ingenium_climate_off_mode(hass, device_1, features):
+    """Test handling multiple bus messages in a single coordinator update."""
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    coordinator = Mock()
+    coordinator.data = {}
+    coordinator.async_add_listener = MagicMock(return_value=None)
+    coordinator.async_remove_listener = MagicMock(return_value=None)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    entity = ingenium_climate.IngeniumClimate(entry, device_1, features)
+    entity.async_write_ha_state = MagicMock()
+
+    # Multiple messages in one update
+    coordinator.data = {
+        5: {
+            "bus_messages": [
+                {"command": 4, "data1": 0, "data2": 0x03},  # AC ON
+                {"command": 4, "data1": 1, "data2": 0x43},  # FAN_AUTO + AUTO
+                {"command": 4, "data1": 2, "data2": 10},  # Target 25°C
+                {"command": 4, "data1": 3, "data2": 114},  # Current 25°C
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+    entity.async_write_ha_state.reset_mock()
+
+    coordinator.data = {
+        5: {
+            "bus_messages": [
+                {"command": 4, "data1": 0, "data2": 0x02},  # AC OFF
+            ]
+        }
+    }
+    entity._handle_coordinator_update()
+
+    # All state should be updated
+    assert entity._attr_hvac_action == HVACAction.OFF
+    assert entity._attr_hvac_mode == HVACMode.AUTO  # Internal state is still stored
+    # .. mode reports as "OFF", because the AC is OFF
+    assert entity.hvac_mode == HVACMode.OFF
+    assert entity.fan_mode == FAN_AUTO
+    assert entity.target_temperature == None  # These are hidden as well
+    assert entity.current_temperature == None  # These are hidden as well
+
+    # async_write_ha_state should be called once for the update
+    entity.async_write_ha_state.assert_called_once()
