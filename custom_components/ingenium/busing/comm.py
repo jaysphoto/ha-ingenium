@@ -14,6 +14,7 @@ class IngeniumBUSingCommunication:
     RESPONSE_TIMEOUT = 15
     RECONNECT_DELAY = 5
     RECONNECT_RETRIES = 5
+    BUFFER_DELAY = 0.2
 
     def __init__(
         self, host: str, port: int = DEFAULT_PORT, retries: int = RECONNECT_RETRIES
@@ -23,9 +24,13 @@ class IngeniumBUSingCommunication:
         self._reader = None
         self._writer = None
         self._retries = retries
+        self._msg_buffer = []
 
-    async def listener(self, callback=None):
+    async def listener(
+        self, callback=None, buffer_flush_delay: None | float = BUFFER_DELAY
+    ):
         retries = self._retries
+        flush_task = None
         """TCP client task that connects to device and logs incoming data in hex."""
         while True:
             try:
@@ -33,15 +38,20 @@ class IngeniumBUSingCommunication:
 
                 try:
                     while True:
-                        d = await self._read_messages()
+                        [
+                            self._msg_buffer.append(msg)
+                            for msg in await self._read_messages()
+                        ]
 
-                        if d is None:
-                            raise IOError("Lost connection")
+                        # Schedule (always) 1 task for flushing the message buffer
+                        if flush_task is None or flush_task.done():
+                            flush_task = asyncio.create_task(
+                                self._flush_buffer(callback, buffer_flush_delay)
+                            )
 
                         # Connection is alive - reset retries
                         retries = self._retries
-                        if not callback is None:
-                            callback(d)
+
                 finally:
                     await self._close_connection()
             except asyncio.CancelledError:
@@ -114,15 +124,32 @@ class IngeniumBUSingCommunication:
 
     async def _read_messages(self) -> List[dict] | None:
         # Read up to 100 datagrams at the time
-        data = await self._reader.read(9 * 100)
+        MAX_READ = 9 * 100
+
+        data = await self._reader.read(MAX_READ)
+
         if not data:
-            return None
+            raise IOError("Lost connection")
 
         decoded_messages = IngeniumBUSingDatagram.decode(data)
 
-        [_LOGGER.debug("Received datagram: %s", msg) for msg in decoded_messages]
+        [_LOGGER.debug(f"Decoded message: {msg}") for msg in decoded_messages]
 
         return decoded_messages
+
+    async def _flush_buffer(self, cb, delay: None | float):
+        """Async flush message buffer content to callback"""
+        if not delay is None and delay > 0:
+            # Delay a little longer for more messages to arrive
+            await asyncio.sleep(delay)
+
+        msgs = self._msg_buffer
+        if len(msgs) > 0:
+            _LOGGER.debug(f"Flushing {len(msgs)} message(s) from buffer")
+            self._msg_buffer = []
+            # Trigger callback with message buffer contents
+            if not cb is None:
+                cb(msgs)
 
 
 class IngeniumBUSingDatagram:
