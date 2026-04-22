@@ -23,14 +23,11 @@ import logging
 
 from homeassistant.core import HomeAssistant
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-)
 
-from .const import ATTR_MANUFACTURER, DOMAIN, CONF_MAC
-from .device import BusDeviceType
+from .const import CONF_MAC
+from .device import BusDeviceType, Device
+from .entity import BaseEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,65 +74,38 @@ async def async_setup_entry(
 
         async_add_entities(
             [
-                IngeniumBinarySwitch(
-                    config_entry, dev.address, dev.output, dev.label, model
-                )
+                IngeniumBinarySwitch(config_entry, dev, model)
                 for dev in actuators[address].values()
             ]
         )
 
 
-class IngeniumBinarySwitch(CoordinatorEntity, SwitchEntity):
+class IngeniumBinarySwitch(BaseEntity, SwitchEntity):
     def __init__(
         self,
         config_entry: dict,
-        address: int,
-        output: int = 0,
-        label: str | None = None,
+        dev: Device,
         model: str = "",
     ):
-        super().__init__(config_entry.runtime_configuration["coordinator"])
+        super().__init__(config_entry, dev, model)
 
-        self._coordinator = config_entry.runtime_configuration["coordinator"]
-        self._parent_config_entry = config_entry
-        self._address = address
-        self._output = output
-        self._model = model
-        self._is_on = None
-        self._attr_has_entity_name = True
-        self._attr_name = label
         self._attr_unique_id = (
-            f"{config_entry.data.get(CONF_MAC)}_busing_{address}_{output}"
+            f"{config_entry.data.get(CONF_MAC)}_busing_{dev.address}_{dev.output}"
         )
-
-    def _handle_coordinator_update(self) -> None:
-        if self._address not in self.coordinator.data:
-            return
-
-        service_call = self.coordinator.data[self._address]
-
-        res = [
-            self._read_bus_message(msg)
-            for msg in service_call["bus_messages"]
-            if msg["command"] == 4
-            if "bus_messages" in service_call
-        ]
-
-        # Request update of HA state if any message resulted in an update to the entity state
-        if any(res):
-            _LOGGER.info("Updating UI state") or self.async_write_ha_state()
+        self._attr_name = dev.label
+        self._output = dev.output
 
     def _read_bus_message(self, msg) -> bool:
         if msg["data1"] == 1:  # All outputs state
-            self._is_on = bool(msg["data2"] & 2**self._output)
+            self._attr_is_on = bool(msg["data2"] & 2**self._output)
             return True
         elif msg["data1"] == 2:  # Change state command for one output
             if msg["data2"] == self._output:
                 _LOGGER.debug(f"Switching ON {msg['data2']} ==  {self._output}")
-                self._is_on = True
+                self._attr_is_on = True
             elif msg["data2"] == (self._output + 8):
                 _LOGGER.debug(f"Switching OFF {msg['data2']} ==  {self._output} + 8")
-                self._is_on = False
+                self._attr_is_on = False
             else:
                 _LOGGER.debug(
                     f"Ignoring: {msg['data2']} !=  {self._output} (My ON state) != {self._output + 8} (My OFF state)"
@@ -145,27 +115,3 @@ class IngeniumBinarySwitch(CoordinatorEntity, SwitchEntity):
             return True
 
         return False
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        return self._is_on
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return the device info."""
-        return DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, self._address)
-            },
-            name=f"Actuators {self._address}",
-            manufacturer=ATTR_MANUFACTURER,
-            model=self._model,
-            via_device=(DOMAIN, self._parent_config_entry.entry_id),
-        )
-
-    @property
-    def name(self):
-        """Name of the entity."""
-        return self._attr_name

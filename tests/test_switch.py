@@ -1,3 +1,5 @@
+import pytest
+
 from unittest.mock import MagicMock, Mock
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -7,7 +9,29 @@ from custom_components.ingenium.const import ATTR_MANUFACTURER, DOMAIN
 from custom_components.ingenium.device import BusDeviceType, BUSDevice
 
 
-async def test_async_setup_entry_adds_binary_switch_entities(hass):
+@pytest.fixture
+def device_1() -> BUSDevice:
+    return BUSDevice(
+        address=1,
+        label="Output 4",
+        device_type=BusDeviceType.ACTUATOR_ALL_NOTHING,
+        type=24,
+        output=4,
+    )
+
+
+@pytest.fixture
+def device_2() -> BUSDevice:
+    return BUSDevice(
+        address=1,
+        label="Output 5",
+        device_type=BusDeviceType.ACTUATOR_ALL_NOTHING,
+        type=24,
+        output=5,
+    )
+
+
+async def test_async_setup_entry_adds_binary_switch_entities(hass, device_1, device_2):
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
@@ -21,22 +45,7 @@ async def test_async_setup_entry_adds_binary_switch_entities(hass):
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
-        "devices": [
-            BUSDevice(
-                address=1,
-                label="Output 4",
-                device_type=BusDeviceType.ACTUATOR_ALL_NOTHING,
-                type=24,
-                output=4,
-            ),
-            BUSDevice(
-                address=1,
-                label="Output 5",
-                device_type=BusDeviceType.ACTUATOR_ALL_NOTHING,
-                type=24,
-                output=5,
-            ),
-        ],
+        "devices": [device_1, device_2],
     }
 
     async_add_entities = MagicMock()
@@ -58,7 +67,7 @@ async def test_async_setup_entry_adds_binary_switch_entities(hass):
     assert added_entities[1].device_info == added_entities[0].device_info
 
 
-async def test_ingenium_binary_switch_device_info(hass):
+async def test_ingenium_binary_switch_device_info(hass, device_1):
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
@@ -75,18 +84,16 @@ async def test_ingenium_binary_switch_device_info(hass):
         "devices": [],
     }
 
-    entity = ingenium_switch.IngeniumBinarySwitch(
-        entry, address=1, output=1, label="Test Switch", model="2E2S"
-    )
+    entity = ingenium_switch.IngeniumBinarySwitch(entry, device_1, model="2E2S")
 
-    assert entity.device_info["identifiers"] == {(DOMAIN, 1)}
-    assert entity.device_info["name"] == "Actuators 1"
+    assert entity.device_info["identifiers"] == {(DOMAIN, "A123B", 1)}
+    assert entity.device_info["name"] == "smart_touch_A123B_1"
     assert entity.device_info["manufacturer"] == ATTR_MANUFACTURER
     assert entity.device_info["model"] == "2E2S"
-    assert entity.device_info["via_device"] == (DOMAIN, entry.entry_id)
+    assert entity.device_info["via_device"] == (DOMAIN, "A123B")
 
 
-async def test_ingenium_binary_switch_updates_state(hass):
+async def test_ingenium_binary_switch_updates_state(hass, device_1):
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
@@ -103,17 +110,14 @@ async def test_ingenium_binary_switch_updates_state(hass):
         "devices": [],
     }
 
-    output = 4
-    entity = ingenium_switch.IngeniumBinarySwitch(
-        entry, address=1, output=output, label="Test Switch", model="2E2S"
-    )
+    entity = ingenium_switch.IngeniumBinarySwitch(entry, device_1, model="2E2S")
     entity.async_write_ha_state = MagicMock()
 
     # Construct BUSing message of activating the output
     coordinator.data = {
         1: {
             "bus_messages": [
-                {"command": 4, "data1": 2, "data2": output},
+                {"command": 4, "data1": 2, "data2": device_1.output},
             ]
         }
     }
@@ -128,7 +132,7 @@ async def test_ingenium_binary_switch_updates_state(hass):
     coordinator.data = {
         1: {
             "bus_messages": [
-                {"command": 4, "data1": 2, "data2": (output + 8)},
+                {"command": 4, "data1": 2, "data2": (device_1.output + 8)},
             ]
         }
     }
@@ -143,7 +147,7 @@ async def test_ingenium_binary_switch_updates_state(hass):
     coordinator.data = {
         1: {
             "bus_messages": [
-                {"command": 4, "data1": 2, "data2": (output + 1)},
+                {"command": 4, "data1": 2, "data2": (device_1.output + 1)},
             ]
         }
     }
@@ -152,7 +156,7 @@ async def test_ingenium_binary_switch_updates_state(hass):
     entity.async_write_ha_state.assert_not_called()
 
 
-async def test_ingenium_binary_switch_read_outputs(hass):
+async def test_ingenium_binary_switch_read_outputs(hass, device_1):
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
@@ -169,9 +173,7 @@ async def test_ingenium_binary_switch_read_outputs(hass):
         "devices": [],
     }
 
-    entity = ingenium_switch.IngeniumBinarySwitch(
-        entry, address=1, output=4, label="Test Switch", model="2E2S"
-    )
+    entity = ingenium_switch.IngeniumBinarySwitch(entry, device_1, model="2E2S")
     entity.async_write_ha_state = MagicMock()
 
     # Construct BUSing message where all outputs are off
