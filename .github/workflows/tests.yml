@@ -2,7 +2,16 @@ name: Validate with test suite
 
 on:
   push:
+    branches:
+      - main
+      - dev
   pull_request:
+    paths:
+      - ".github/workflows/tests.yml"
+      - "custom_components/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - "setup.cfg"
 
 env:
   PYTHON_VERSION: "3.12"
