@@ -1,4 +1,4 @@
-"""Struct classes for ingenium http api responses."""
+"""Struct classes for ingenium http api errors and responses."""
 
 
 class IngeniumHttpInstallEntry(dict):
@@ -54,3 +54,23 @@ class IngeniumHttpInstallEntry(dict):
     def address(self) -> int:
         """Return the bus address of the entry."""
         return self._address
+
+
+class IngeniumException(Exception):
+    """Base class for exceptions."""
+
+
+class IngeniumHttpNetworkError(IngeniumException):
+    """Error to indicate a network error occurred."""
+
+
+class IngeniumHttpClientError(IngeniumException):
+    """Error to indicate client request error occurred."""
+
+
+class IngeniumHttpServerError(IngeniumException):
+    """Error to indicate server response error occurred."""
+
+
+class IngeniumNotSupportedError(IngeniumException):
+    """Error to indicate device is not supported."""
