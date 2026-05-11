@@ -162,8 +162,11 @@ class Device(DataUpdateCoordinator):
     def _bus_message(self, msgs):
         entity_updates = {}
         for msg in msgs:
-            if msg["command"] in [1, 4] and msg["origin"] == 0xFEFE:
-                # BUSing device register write value or ACK messages
+            if msg["command"] in [1, 2]:
+                # ACK or NACK message
+                continue
+            elif msg["command"] == 4 and msg["origin"] == 0xFEFE:
+                # BUSing device write register value
                 context = msg["destination"]
             elif msg["command"] == 4 and msg["origin"] == msg["destination"]:
                 # BUSing device register value self-reported value changes
