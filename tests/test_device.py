@@ -27,16 +27,7 @@ def dev(hass):
     return Device(hass, entry)
 
 
-def test_device_init(hass):
-    hass.data.setdefault(DOMAIN, {})
-
-    config_data = {"mac": "A123B", "host": "192.168.1.100"}
-
-    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
-    entry.add_to_hass(hass)
-
-    dev = Device(hass, entry)
-
+def test_device_init(dev):
     devices = dev.get_devices()
 
     # BUSing device list empty
@@ -45,15 +36,7 @@ def test_device_init(hass):
 
 
 @pytest.mark.asyncio
-async def test_with_async_init(hass):
-    hass.data.setdefault(DOMAIN, {})
-
-    config_data = {"mac": "A123B", "host": "192.168.1.100"}
-
-    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
-    entry.add_to_hass(hass)
-
-    dev = Device(hass, entry)
+async def test_with_async_init(dev):
     result = await dev.async_initialize_device()
 
     assert result is None

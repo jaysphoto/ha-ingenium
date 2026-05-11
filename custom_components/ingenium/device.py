@@ -2,6 +2,7 @@
 
 import logging
 
+from asyncio import Task
 from enum import Enum
 from homeassistant.core import HomeAssistant, dataclass
 from homeassistant.helpers import device_registry, entity_registry
@@ -82,6 +83,10 @@ class Device(DataUpdateCoordinator):
     def host(self) -> str:
         """Return the host of the ingenium touch device."""
         return self._config_entry.data[CONF_HOST]
+
+    @property
+    def listener(self) -> None | Task:
+        return self._listener
 
     async def async_initialize_device(self) -> bool:
         """Set up the devices for the ingenium touch device or webserver."""
