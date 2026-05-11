@@ -18,13 +18,13 @@ from .const import (
     CONF_VERSION,
     ATTR_MANUFACTURER,
 )
-from .exceptions import (
-    IngeniumHttpNetworkError,
+from .device import IgnoredBUSDevice
+from .http.local import (
+    IngeniumHttpLocal,
     IngeniumHttpClientError,
+    IngeniumHttpNetworkError,
     IngeniumHttpServerError,
 )
-from .device import IgnoredBUSDevice
-from .http.local import IngeniumHttpLocal
 
 _LOGGER = logging.getLogger(__name__)
 VERSION = 1
@@ -48,7 +48,7 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 async with async_timeout.timeout(5):
                     is_v3 = await http.is_v3
-                    assert is_v3 is False, "Device does appears to be a KNX device"
+                    assert is_v3 is False, "Device appears to be a KNX device"
                     conf = await http.config
                     installation_data = await http.installation_data
 

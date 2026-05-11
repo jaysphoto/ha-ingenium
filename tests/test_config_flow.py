@@ -275,7 +275,7 @@ async def test_config_flow_v3_device(hass):
 
 async def test_config_flow_http_errors(hass):
     from asyncio.exceptions import TimeoutError
-    from custom_components.ingenium.exceptions import (
+    from custom_components.ingenium.http import (
         IngeniumHttpClientError,
         IngeniumHttpServerError,
         IngeniumHttpNetworkError,

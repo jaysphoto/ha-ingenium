@@ -3,10 +3,10 @@ import logging
 import re
 
 from typing import Optional
-from ..http import IngeniumHttpInstallEntry
-from ..exceptions import (
-    IngeniumHttpNetworkError,
+from . import (
+    IngeniumHttpInstallEntry,
     IngeniumHttpClientError,
+    IngeniumHttpNetworkError,
     IngeniumHttpServerError,
 )
 
