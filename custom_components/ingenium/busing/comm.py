@@ -174,7 +174,7 @@ class IngeniumBUSingDatagram:
                     f"Incomplete datagram received: {dg.hex()}"
                 )
                 break
-            cmd, origin, destination, data1, data2 = unpack(">xxbHHBB", dg)
+            cmd, destination, origin, data1, data2 = unpack(">xxbHHBB", dg)
             decoded = {
                 "raw": dg.hex(),
                 "command": cmd,

@@ -162,15 +162,29 @@ class Device(DataUpdateCoordinator):
     def _bus_message(self, msgs):
         entity_updates = {}
         for msg in msgs:
-            # BUS register value responses (command: 4)
-            if msg["command"] == 4:
-                context = (
-                    msg["origin"]
-                    if msg["destination"] == 0xFEFE
-                    else msg["destination"]
+            if msg["command"] in [1, 2]:
+                # ACK or NACK message
+                continue
+            elif msg["command"] == 4 and msg["origin"] == 0xFEFE:
+                # BUSing device write register value
+                context = msg["destination"]
+            elif msg["command"] == 4 and msg["origin"] == msg["destination"]:
+                # BUSing device register value self-reported value changes
+                context = msg["origin"]
+            elif msg["command"] == 10 and msg["origin"] == 0xFEFE:
+                # Request message for device register value dump
+                continue
+            else:
+                # Unknown, may need further investigation ?
+                _LOGGER.debug(
+                    f"Ignoring message with: cmd={msg['command']}, destination={msg['destination']}"
                 )
-                if context not in entity_updates:
-                    entity_updates[context] = {"bus_messages": []}
-                entity_updates[context]["bus_messages"].append(msg)
+                continue
 
-        self.async_set_updated_data(entity_updates)
+            if context not in entity_updates:
+                entity_updates[context] = {"bus_messages": []}
+
+            entity_updates[context]["bus_messages"].append(msg)
+
+        if len(entity_updates) > 0:
+            self.async_set_updated_data(entity_updates)

@@ -98,20 +98,14 @@ class IngeniumBinarySwitch(BaseEntity, SwitchEntity):
     def _read_bus_message(self, msg) -> bool:
         if msg["data1"] == 1:  # All outputs state
             self._attr_is_on = bool(msg["data2"] & 2**self._output)
-            return True
         elif msg["data1"] == 2:  # Change state command for one output
             if msg["data2"] == self._output:
-                _LOGGER.debug(f"Switching ON {msg['data2']} ==  {self._output}")
                 self._attr_is_on = True
             elif msg["data2"] == (self._output + 8):
-                _LOGGER.debug(f"Switching OFF {msg['data2']} ==  {self._output} + 8")
                 self._attr_is_on = False
             else:
-                _LOGGER.debug(
-                    f"Ignoring: {msg['data2']} !=  {self._output} (My ON state) != {self._output + 8} (My OFF state)"
-                )
                 return False
+        else:
+            return False
 
-            return True
-
-        return False
+        return True
