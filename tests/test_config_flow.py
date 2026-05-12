@@ -2,6 +2,9 @@
 
 import pytest
 from unittest.mock import MagicMock, patch
+from homeassistant.config_entries import SOURCE_RECONFIGURE
+
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ingenium import config_flow
 from custom_components.ingenium.const import (
@@ -12,6 +15,7 @@ from custom_components.ingenium.const import (
     CONF_MAC,
     CONF_VERSION,
 )
+from custom_components.ingenium.device import Device
 
 
 @pytest.fixture
@@ -318,3 +322,69 @@ async def test_config_flow_http_errors(hass):
             assert result["type"] == "form"
             assert result["step_id"] == "user"
             assert result["errors"] == {"base": expected_error_message}
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_flow(hass, mock_http, mock_installation_data):
+    """Test reconfigure updates existing config entry with new ignore availability options."""
+
+    # Create an existing config entry to reconfigure
+    existing_entry = MockConfigEntry(
+        domain="ingenium",
+        data={
+            CONF_VERSION: 1,
+            CONF_HOST: "192.168.1.100",
+            CONF_MAC: "AA:BB:CC:DD:EE:FF",
+            CONF_DEVICE: {CONF_INSTALLATION_DATA: mock_installation_data},
+            CONF_IGNORE_AVAILABILITY: [],
+        },
+    )
+    existing_entry.add_to_hass(hass)
+
+    # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+    with (
+        patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
+        patch.object(
+            config_flow.aiohttp_client,
+            "async_get_clientsession",
+            return_value=MagicMock(),
+        ) as mock_http_client,
+        patch.object(Device, "async_initialize_device", return_value=True),
+    ):
+        # Initialize the config flow with reconfigure source
+        flow = config_flow.IngeniumConfigFlow()
+        flow.hass = hass
+        flow.context = {
+            "source": SOURCE_RECONFIGURE,
+            "entry_id": existing_entry.entry_id,
+        }
+
+        # Step 1: Start reconfigure flow (calls async_step_user with host pre-filled)
+        result = await flow.async_step_reconfigure()
+
+        # Should proceed to devices step (async_step_user with host data proceeds to devices)
+        assert result["type"] == "form"
+        assert result["step_id"] == "devices"
+        # The device has been re-read again with the http client
+        assert mock_http_client.assert_called_once
+
+        # Step 2: Update with new ignore availability options
+        result = await flow.async_step_devices(
+            {
+                f"{CONF_IGNORE_AVAILABILITY}_type_26": {
+                    CONF_IGNORE_AVAILABILITY: ["4-0"]
+                },
+                f"{CONF_IGNORE_AVAILABILITY}_type_47": {CONF_IGNORE_AVAILABILITY: []},
+            }
+        )
+
+        # Should UPDATE the entry, not create a new one
+        assert result["type"] == "abort"
+        assert result["reason"] == "reconfigure_successful"
+
+        # Verify the entry was updated with new ignore availability options
+        assert len(existing_entry.data[CONF_IGNORE_AVAILABILITY]) == 1
+        ignored_device = existing_entry.data[CONF_IGNORE_AVAILABILITY][0]
+        assert ignored_device.type == "26"
+        assert ignored_device.address == "4"
+        assert ignored_device.output == "0"
