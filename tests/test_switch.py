@@ -86,7 +86,7 @@ async def test_ingenium_binary_switch_device_info(hass, device_1):
 
     entity = ingenium_switch.IngeniumBinarySwitch(entry, device_1, model="2E2S")
 
-    assert entity.device_info["identifiers"] == {(DOMAIN, "A123B", 1)}
+    assert entity.device_info["identifiers"] == {(DOMAIN, "A123B", 1, 24)}
     assert entity.device_info["name"] == "smart_touch_A123B_1"
     assert entity.device_info["manufacturer"] == ATTR_MANUFACTURER
     assert entity.device_info["model"] == "2E2S"

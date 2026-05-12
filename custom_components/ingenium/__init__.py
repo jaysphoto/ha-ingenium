@@ -3,6 +3,7 @@
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers import device_registry as dr
 from typing import TypedDict
 
 from .const import DOMAIN
@@ -63,3 +64,17 @@ async def async_reload_entry(hass: HomeAssistant, entry: IngeniumConfigEntry) ->
     """Reload the config entry."""
     await async_unload_entry(hass, entry)
     await async_setup_entry(hass, entry)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: IngeniumConfigEntry, device_entry: dr.DeviceEntry
+):
+    known_identifiers = entry.runtime_configuration[
+        "coordinator"
+    ].get_device_identifiers()
+
+    return not any(
+        identifier
+        for identifier in device_entry.identifiers
+        if identifier in known_identifiers
+    )

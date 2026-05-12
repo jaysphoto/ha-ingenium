@@ -4,14 +4,14 @@ import logging
 
 from asyncio import Task
 from enum import Enum
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, dataclass
-from homeassistant.helpers import device_registry, entity_registry
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-)
+from homeassistant.helpers import device_registry
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 
 from .busing.comm import IngeniumBUSingCommunication
+from .common import get_identifier_device
 from .const import (
     ATTR_MANUFACTURER,
     CONF_DEVICE,
@@ -65,7 +65,7 @@ class IgnoredBUSDevice:
 class Device(DataUpdateCoordinator):
     """Class to represent a Ingenium touch device."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: dict):
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
         super().__init__(
             hass,
             _LOGGER,
@@ -73,10 +73,9 @@ class Device(DataUpdateCoordinator):
         )
 
         assert CONF_HOST in config_entry.data
+        assert CONF_MAC in config_entry.data
 
-        # FIXME: Config entry data types should be defined in a schema and validated, not accessed as dicts
         self._config_entry = config_entry
-        self._climate_device_address = None
         self._listener = None
 
     @property
@@ -91,34 +90,24 @@ class Device(DataUpdateCoordinator):
     async def async_initialize_device(self) -> bool:
         """Set up the devices for the ingenium touch device or webserver."""
 
+        entry = self._config_entry
+
         dr = device_registry.async_get(self.hass)
         dr.async_get_or_create(
-            name=f"smart_touch_{self._config_entry.data[CONF_MAC]}",
-            config_entry_id=self._config_entry.entry_id,
+            name=f"smart_touch_{entry.data[CONF_MAC]}",
+            config_entry_id=entry.entry_id,
             connections={
                 (
                     device_registry.CONNECTION_NETWORK_MAC,
-                    self._config_entry.data[CONF_MAC],
+                    entry.data[CONF_MAC],
                 )
             },
-            identifiers={
-                (DOMAIN, self._config_entry.data[CONF_MAC]),
-            },
+            identifiers={get_identifier_device(entry.data[CONF_MAC])},
             manufacturer=ATTR_MANUFACTURER,
             # name=api.config.name,
             # model_id=api.config.model_id,
             # sw_version=await hass.async_add_executor_job(http.sw_version)
         )
-
-        # Load tracked entities from registry
-        existing_entries = entity_registry.async_entries_for_config_entry(
-            entity_registry.async_get(self.hass),
-            self._config_entry.entry_id,
-        )
-
-        _LOGGER.debug("Existing entities for device: %s", existing_entries)
-
-        # TODO: remove stale entities automatically
 
         self.comm = IngeniumBUSingCommunication(self.host)
 
@@ -134,6 +123,17 @@ class Device(DataUpdateCoordinator):
             for device in self._all_devices()
             if not self._is_device_ignored(device)
         ]
+
+    def get_device_identifiers(self) -> list[dict]:
+        """Returns the device identifiers for all currently registered bus devices"""
+        identifiers = [(DOMAIN, self._config_entry.data[CONF_MAC])]
+
+        for device in self._config_entry.runtime_configuration["devices"]:
+            identifiers.append(
+                (DOMAIN, self._config_entry.data[CONF_MAC], device.address, device.type)
+            )
+
+        return identifiers
 
     def _all_devices(self) -> list[BUSDevice]:
         install_config = self._config_entry.data.get(CONF_DEVICE, {}).get(
