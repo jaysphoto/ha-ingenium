@@ -3,7 +3,11 @@ import logging
 import voluptuous as vol
 
 from homeassistant import data_entry_flow
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigFlow,
+    ConfigFlowResult,
+    SOURCE_RECONFIGURE,
+)
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.selector import selector
 from typing import Optional
@@ -83,7 +87,9 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_devices(self, user_info: Optional[dict]) -> ConfigFlowResult:
+    async def async_step_devices(
+        self, user_info: Optional[dict] | None
+    ) -> ConfigFlowResult:
         if user_info is not None:
             user_info_ignore_devices = [
                 key
@@ -105,10 +111,13 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 self.config[CONF_IGNORE_AVAILABILITY] = ignored_devices
 
-                return self.async_create_entry(
-                    title=f"{ATTR_MANUFACTURER} at {self.config[CONF_HOST]}",
-                    data=self.config,
-                )
+                if self.source == SOURCE_RECONFIGURE:
+                    return await self.async_step_reconfigure(self.config)
+                else:
+                    return self.async_create_entry(
+                        title=f"{ATTR_MANUFACTURER} at {self.config[CONF_HOST]}",
+                        data=self.config,
+                    )
 
         devices_by_type: dict[int, list] = {}
 
@@ -153,6 +162,17 @@ class IngeniumConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="devices",
             data_schema=vol.Schema(data_schema),
         )
+
+    async def async_step_reconfigure(self, user_input: Optional[dict] | None = None):
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates=self.config,
+            )
+
+        return await self.async_step_user({CONF_HOST: entry.data.get(CONF_HOST, "")})
 
     def get_device_http(self, host: str):
         if self.http is None:

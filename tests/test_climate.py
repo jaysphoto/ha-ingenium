@@ -2,7 +2,6 @@ import pytest
 
 from unittest.mock import MagicMock, Mock
 
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
     HVACMode,
@@ -150,7 +149,7 @@ async def test_ingenium_climate_device_info(hass, device_1, features):
     entity = ingenium_climate.IngeniumClimate(entry, device_1, features, model)
 
     device_info = entity.device_info
-    assert device_info["identifiers"] == {(DOMAIN, "A123B", 5)}
+    assert device_info["identifiers"] == {(DOMAIN, "A123B", 5, 47)}
     assert device_info["name"] == "smart_touch_A123B_5"
     assert device_info["manufacturer"] == ATTR_MANUFACTURER
     assert device_info["model"] == model
