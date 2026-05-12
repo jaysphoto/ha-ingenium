@@ -9,6 +9,7 @@ from homeassistant.helpers.update_coordinator import (
 from typing import final
 
 from .const import ATTR_MANUFACTURER, DOMAIN, CONF_MAC
+from .common import get_identifier_entity
 from .device import Device
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class BaseEntity(CoordinatorEntity, Entity):
         self._parent_config_entry = config_entry
         self._attr_has_entity_name = True
         self._address = dev.address
+        self._type_id = dev.type
         self._model = model
 
     @final
@@ -54,8 +56,12 @@ class BaseEntity(CoordinatorEntity, Entity):
         """Return the device info."""
         return DeviceInfo(
             identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, self._parent_config_entry.data[CONF_MAC], self._address)
+                # Touch device MAC, bus address and bus device type id are unique
+                get_identifier_entity(
+                    mac=self._parent_config_entry.data[CONF_MAC],
+                    address=self._address,
+                    type=self._type_id,
+                )
             },
             name=f"smart_touch_{self._parent_config_entry.data[CONF_MAC]}_{self._address}",
             manufacturer=ATTR_MANUFACTURER,
