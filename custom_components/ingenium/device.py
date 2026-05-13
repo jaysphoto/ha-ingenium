@@ -75,9 +75,8 @@ class Device(DataUpdateCoordinator):
         assert CONF_HOST in config_entry.data
         assert CONF_MAC in config_entry.data
 
-        self._comm = None
         self._config_entry = config_entry
-        self._listener = None
+        self._comm = IngeniumBUSingCommunication(self.host)
 
     @property
     def host(self) -> str:
@@ -109,8 +108,6 @@ class Device(DataUpdateCoordinator):
             # model_id=api.config.model_id,
             # sw_version=await hass.async_add_executor_job(http.sw_version)
         )
-
-        self._comm = IngeniumBUSingCommunication(self.host)
 
         # Setup listener task for BUSing communication
         self._listener = self.hass.async_create_background_task(
