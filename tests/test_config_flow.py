@@ -342,6 +342,8 @@ async def test_reconfigure_flow(hass, mock_http, mock_installation_data):
     existing_entry.add_to_hass(hass)
 
     # Patch the IngeniumHttpLocal class and the session creator to avoid real HTTP setup
+    # Also intercept the scheduled reload so the test stays isolated and does not
+    # start a real BUSing listener task.
     with (
         patch.object(config_flow, "IngeniumHttpLocal", return_value=mock_http),
         patch.object(
@@ -349,7 +351,9 @@ async def test_reconfigure_flow(hass, mock_http, mock_installation_data):
             "async_get_clientsession",
             return_value=MagicMock(),
         ) as mock_http_client,
-        patch.object(Device, "async_initialize_device", return_value=True),
+        patch.object(
+            hass.config_entries, "async_schedule_reload", MagicMock()
+        ) as mock_schedule_reload,
     ):
         # Initialize the config flow with reconfigure source
         flow = config_flow.IngeniumConfigFlow()
@@ -381,6 +385,7 @@ async def test_reconfigure_flow(hass, mock_http, mock_installation_data):
         # Should UPDATE the entry, not create a new one
         assert result["type"] == "abort"
         assert result["reason"] == "reconfigure_successful"
+        mock_schedule_reload.assert_called_once_with(existing_entry.entry_id)
 
         # Verify the entry was updated with new ignore availability options
         assert len(existing_entry.data[CONF_IGNORE_AVAILABILITY]) == 1
