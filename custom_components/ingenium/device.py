@@ -75,6 +75,7 @@ class Device(DataUpdateCoordinator):
         assert CONF_HOST in config_entry.data
         assert CONF_MAC in config_entry.data
 
+        self._comm = None
         self._config_entry = config_entry
         self._listener = None
 
@@ -109,11 +110,11 @@ class Device(DataUpdateCoordinator):
             # sw_version=await hass.async_add_executor_job(http.sw_version)
         )
 
-        self.comm = IngeniumBUSingCommunication(self.host)
+        self._comm = IngeniumBUSingCommunication(self.host)
 
         # Setup listener task for BUSing communication
         self._listener = self.hass.async_create_background_task(
-            self.comm.listener(self._bus_message), f"{DOMAIN}_{TASK_BUSING}"
+            self._comm.listener(self._bus_message), f"{DOMAIN}_{TASK_BUSING}"
         )
 
     def get_devices(self) -> list[BUSDevice]:
