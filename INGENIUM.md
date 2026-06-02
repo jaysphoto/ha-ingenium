@@ -34,6 +34,7 @@ The general format of a BUSing message is:
 | Request       | Write register value          | 4     |
 | Request       | Read device EEPROM value      | 5     |
 | Request       | Write device EEPROM value     | 6     |
+| Request       | Report diagnostics            | 9     |
 | Request       | Report all register values    | 10    |
 
 ### Datagram encoding/decoding
