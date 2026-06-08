@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from struct import pack, unpack
-from typing import List
+from typing import List, Callable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,71 +15,78 @@ class IngeniumBUSingCommunication:
     RECONNECT_DELAY = 5
     RECONNECT_RETRIES = 5
     BUFFER_DELAY = 0.2
+    DEFAULT_POLLING_INTERVAL = 300
 
     def __init__(
         self, host: str, port: int = DEFAULT_PORT, retries: int = RECONNECT_RETRIES
     ):
         self._host = host
         self._port = port
+        self._retries = retries
         self._reader = None
         self._writer = None
-        self._retries = retries
         self._msg_buffer = []
+        self._future_messages = False
 
     async def listener(
-        self, callback=None, buffer_flush_delay: None | float = BUFFER_DELAY
+        self,
+        callback=None,
+        buffer_flush_delay: None | float = BUFFER_DELAY,
+        polling_interval: None | int = None,
     ):
-        retries = self._retries
-        flush_task = None
         """TCP client task that connects to device and logs incoming data in hex."""
+        flush_task = polling_task = None
+
         while True:
             try:
-                await self._open_connection()
+                if polling_interval is not None and polling_interval > 0:
+                    # Schedule polling messages at the configured interval
+                    if polling_task is None or polling_task.done():
+                        polling_task = asyncio.create_task(
+                            self._polling_periodically(polling_interval)
+                        )
 
-                try:
-                    while True:
-                        [
-                            self._msg_buffer.append(msg)
-                            for msg in await self._read_messages()
-                        ]
+                while True:
+                    [
+                        self._msg_buffer.append(msg)
+                        for msg in await self._read_messages()
+                    ]
 
-                        # Schedule (always) 1 task for flushing the message buffer
-                        if flush_task is None or flush_task.done():
-                            flush_task = asyncio.create_task(
-                                self._flush_buffer(callback, buffer_flush_delay)
-                            )
+                    # Schedule (always) 1 task for flushing the message buffer
+                    if flush_task is None or flush_task.done():
+                        flush_task = asyncio.create_task(
+                            self._flush_buffer(callback, buffer_flush_delay)
+                        )
 
-                        # Connection is alive - reset retries
-                        retries = self._retries
+            except IOError as e:
+                _LOGGER.warning("IOError occurred: %s", e)
+                continue
 
-                finally:
-                    await self._close_connection()
             except asyncio.CancelledError:
                 _LOGGER.info("Listener cancelled, closed connection")
                 break
-            except IOError as e:
-                if retries == 0:
-                    _LOGGER.warning(
-                        f"Connection failed: {e}, giving up after {self._retries} tries"
-                    )
-                    break
-
-                _LOGGER.warning(
-                    f"Connection failed: {e}, retrying in {self.RECONNECT_DELAY} seconds"
-                )
-                retries = retries - 1
-                await asyncio.sleep(self.RECONNECT_DELAY)
 
     async def send_message(
-        self, command: int, _origin: int, destination: int, data1: int, data2: int
-    ):
+        self,
+        command: int,
+        destination: int,
+        data1: int,
+        data2: int,
+        _origin: int = None,
+        cb: None | Callable = None,
+    ) -> bool:
         """Send structured Ingenium BUSing message."""
         origin = 0xFFFF  # Start bytes
         message = IngeniumBUSingDatagram.encode(
             origin, command, destination, data1, data2
         )
 
-        return await self.send_message_raw(message)
+        res = await self.send_message_raw(message)
+
+        if cb:
+            cb(await self.await_response())
+
+        return res
 
     async def send_message_raw(self, message: bytearray | bytes):
         """Send raw Ingenium BUSing message."""
@@ -89,46 +96,100 @@ class IngeniumBUSingCommunication:
             _LOGGER.info("Sending raw message: %s", message.hex())
             self._writer.write(message)
             return await self._writer.drain()
+
         except Exception as e:
             _LOGGER.error("Failed to send message: %s", e)
 
     async def await_response(self, timeout=RESPONSE_TIMEOUT) -> dict | None:
         """Wait for a matching response, RequestReply pattern implementation."""
-        start_t = asyncio.get_event_loop().time()
         while timeout > 0:
+            start_t = asyncio.get_event_loop().time()
+
             _LOGGER.debug(f"Waiting for response message (timeout={timeout})...")
-            d = await asyncio.wait_for(self._read_messages(), timeout=timeout)
 
-            if d is None:
-                break
+            try:
+                d = await asyncio.wait_for(self._read_messages(), timeout=timeout)
 
-            for msg in d:
-                if msg["command"] == 1 or msg["command"] == 2:
-                    return msg
-            # Shorten the timeout for the next loop iteration to account for time already spent waiting
-            timeout = timeout - (asyncio.get_event_loop().time() - start_t)
+                for msg in d:
+                    if msg["command"] == 1 or msg["command"] == 2:
+                        return msg
+            except Exception as e:
+                _LOGGER.warning(f"Failed to read messages: {e}")
+            finally:
+                # Shorten the timeout for the next loop iteration to account for time already spent waiting
+                timeout -= asyncio.get_event_loop().time() - start_t
+
+    async def poll_bus_devices(self):
+        await self.send_message(destination=0xFFFF, command=10, data1=0, data2=0)
+
+    async def _polling_periodically(self, polling_interval):
+        while True:
+            await asyncio.sleep(polling_interval)
+            await self.poll_bus_devices()
 
     async def _open_connection(self):
-        if self._reader is None:
-            self._reader, self._writer = await asyncio.open_connection(
-                self._host, self._port
-            )
-            _LOGGER.info("Connected to %s:%d", self._host, self._port)
+        if (
+            self._reader is not None
+            and self._writer is not None
+            and not self._writer.is_closing()
+        ):
+            return
+
+        if self._writer is not None:
+            await self._close_connection()
+
+        # Connection is alive - reset retries
+        retries = 1
+
+        while True:
+            try:
+                self._reader, self._writer = await asyncio.open_connection(
+                    self._host, self._port
+                )
+                _LOGGER.info("Connected to %s:%d", self._host, self._port)
+                break
+
+            except (IOError, ConnectionRefusedError) as e:
+                _LOGGER.warning(
+                    f"{e}, attempt {retries}/{self._retries}, retrying in {self.RECONNECT_DELAY} seconds"
+                )
+                retries += 1
+
+                if retries > self._retries:
+                    raise e
+
+                await asyncio.sleep(self.RECONNECT_DELAY)
 
     async def _close_connection(self):
         if not self._writer.is_closing():
             self._writer.close()
-            await self._writer.wait_closed()
+
+        await self._writer.wait_closed()
 
         self._reader = self._writer = None
 
-    async def _read_messages(self) -> List[dict] | None:
+    async def _read_messages(self):
+        try:
+            if not self._future_messages or self._future_messages.done():
+                self._future_messages = asyncio.create_task(self._await_messages())
+
+            res = await self._future_messages
+        finally:
+            self._future_messages = False
+
+        return res
+
+    async def _await_messages(self):
+        await self._open_connection()
+
         # Read up to 100 datagrams at the time
         MAX_READ = 9 * 100
 
         data = await self._reader.read(MAX_READ)
 
         if not data:
+            if self._reader.at_eof():
+                self._reader = None
             raise IOError("Lost connection")
 
         decoded_messages = IngeniumBUSingDatagram.decode(data)
