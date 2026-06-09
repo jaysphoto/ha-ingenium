@@ -1,13 +1,17 @@
 """Ingenium device, bus devices and HA entities coordination"""
 
+import asyncio
+import async_timeout
 import logging
 
 from asyncio import Task
+from datetime import timedelta
 from enum import Enum
+from typing import Callable
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, dataclass
 from homeassistant.helpers import device_registry
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 
 from .busing.comm import IngeniumBUSingCommunication
@@ -70,6 +74,7 @@ class Device(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name="IngeniumDevice",
+            update_interval=timedelta(seconds=300),
         )
 
         assert CONF_HOST in config_entry.data
@@ -77,6 +82,8 @@ class Device(DataUpdateCoordinator):
 
         self._config_entry = config_entry
         self._comm = IngeniumBUSingCommunication(self.host)
+        self._sync_request_ack_event = asyncio.Event()
+        self._sync_last_response_msg = None
 
     @property
     def host(self) -> str:
@@ -109,6 +116,8 @@ class Device(DataUpdateCoordinator):
             # sw_version=await hass.async_add_executor_job(http.sw_version)
         )
 
+        await self._comm._open_connection()
+
         # Setup listener task for BUSing communication
         self._listener = self.hass.async_create_background_task(
             self._comm.listener(self._bus_message), f"{DOMAIN}_{TASK_BUSING}"
@@ -132,6 +141,45 @@ class Device(DataUpdateCoordinator):
             )
 
         return identifiers
+
+    async def _async_update_data(self):
+        """
+        Periodically request BUSing devices to self-report registers
+        """
+        async with async_timeout.timeout(15):
+
+            def validate_response(msg):
+                if msg == None or msg["command"] == 2:
+                    raise UpdateFailed(f"Received invalid or NACK response: {msg}")
+
+            try:
+                self._sync_last_response_msg = None
+                self._sync_request_ack_event.clear()
+                listener_task = None
+
+                # Create a listener co-routine if the hass background task isn't already running
+                if self._listener == None:
+                    listener_task = asyncio.create_task(
+                        self._comm.listener(self._bus_message)
+                    )
+                    _LOGGER.debug("Listener created")
+
+                await self._trigger_bus_device_report(cb=self._bus_device_report_ack)
+                # Wait for the request to back ACK'd
+                await self._sync_request_ack_event.wait()
+
+                validate_response(self._sync_last_response_msg)
+
+                # Await and validate second (closing) ACK message
+                validate_response(await self._comm.await_response(origin=0xFF))
+            except (asyncio.TimeoutError, TimeoutError) as err:
+                raise UpdateFailed(f"Communication Timeout: {err}")
+            except IOError as err:
+                raise UpdateFailed(f"Error communicating: {err}")
+            finally:
+                if listener_task is not None:
+                    listener_task.cancel()
+                    _LOGGER.debug("Listener cancelled")
 
     def _all_devices(self) -> list[BUSDevice]:
         install_config = self._config_entry.data.get(CONF_DEVICE, {}).get(
@@ -161,6 +209,15 @@ class Device(DataUpdateCoordinator):
             "output": d.output,
             "address": d.address,
         } in self._config_entry.data.get(CONF_IGNORE_AVAILABILITY, [])
+
+    async def _trigger_bus_device_report(self, cb: Callable | None = None) -> bool:
+        return await self._comm.send_message(
+            destination=0xFF, command=10, data1=0, data2=0, cb=cb
+        )
+
+    async def _bus_device_report_ack(self, msg) -> None:
+        self._sync_last_response_msg = msg
+        self._sync_request_ack_event.set()
 
     def _bus_message(self, msgs):
         entity_updates = {}

@@ -41,6 +41,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: IngeniumConfigEntry) -> 
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await coordinator._trigger_bus_device_report()
 
     return True
 

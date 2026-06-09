@@ -27,7 +27,7 @@ class BaseEntity(CoordinatorEntity, Entity):
 
     @final
     def _handle_coordinator_update(self) -> None:
-        if self._address not in self.coordinator.data:
+        if self.coordinator.data == None or self._address not in self.coordinator.data:
             return
 
         service_call = self.coordinator.data[self._address]
