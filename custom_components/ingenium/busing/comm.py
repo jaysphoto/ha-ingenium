@@ -18,34 +18,35 @@ class IngeniumBUSingCommunication:
     DEFAULT_POLLING_INTERVAL = 300
 
     def __init__(
-        self, host: str, port: int = DEFAULT_PORT, retries: int = RECONNECT_RETRIES
+        self,
+        host: str,
+        port: int = DEFAULT_PORT,
+        retries: int = RECONNECT_RETRIES,
+        response_timeout: int = RESPONSE_TIMEOUT,
     ):
         self._host = host
         self._port = port
-        self._retries = retries
         self._reader = None
         self._writer = None
+        self._retries = retries
+        self._response_timeout = response_timeout
         self._msg_buffer = []
         self._future_messages = False
 
+    def set_response_timeout(self, timeout: int | None) -> None:
+        """Change response timeout value for the next awaited response"""
+        self._response_timeout = timeout
+
     async def listener(
         self,
-        callback=None,
+        callback: Callable,
         buffer_flush_delay: None | float = BUFFER_DELAY,
-        polling_interval: None | int = None,
     ):
         """TCP client task that connects to device and logs incoming data in hex."""
-        flush_task = polling_task = None
+        flush_task = None
 
         while True:
             try:
-                if polling_interval is not None and polling_interval > 0:
-                    # Schedule polling messages at the configured interval
-                    if polling_task is None or polling_task.done():
-                        polling_task = asyncio.create_task(
-                            self._polling_periodically(polling_interval)
-                        )
-
                 while True:
                     [
                         self._msg_buffer.append(msg)
@@ -74,58 +75,63 @@ class IngeniumBUSingCommunication:
         data2: int,
         _origin: int = None,
         cb: None | Callable = None,
-    ) -> bool:
+    ):
         """Send structured Ingenium BUSing message."""
         origin = 0xFFFF  # Start bytes
         message = IngeniumBUSingDatagram.encode(
             origin, command, destination, data1, data2
         )
 
-        res = await self.send_message_raw(message)
+        await self.send_message_raw(message)
 
-        if cb:
-            cb(await self.await_response())
-
-        return res
+        # (optional) Create response callback co-routine, matching reply origin with request
+        if not cb is None:
+            cb(await self.await_response(origin=destination))
 
     async def send_message_raw(self, message: bytearray | bytes):
         """Send raw Ingenium BUSing message."""
         await self._open_connection()
 
         try:
-            _LOGGER.info("Sending raw message: %s", message.hex())
+            _LOGGER.debug("Sending raw message: %s", message.hex())
             self._writer.write(message)
-            return await self._writer.drain()
 
-        except Exception as e:
+            await self._writer.drain()
+
+        except IOError as e:
             _LOGGER.error("Failed to send message: %s", e)
+            return False
 
-    async def await_response(self, timeout=RESPONSE_TIMEOUT) -> dict | None:
-        """Wait for a matching response, RequestReply pattern implementation."""
-        while timeout > 0:
-            start_t = asyncio.get_event_loop().time()
+        return True
 
-            _LOGGER.debug(f"Waiting for response message (timeout={timeout})...")
+    async def await_response(self, origin=int | None) -> dict | None:
+        """Wait for a matching response, up until the value of response_timeout (in seconds)."""
+        timeout = self._response_timeout
+
+        start_t = asyncio.get_event_loop().time()
+
+        while True:
+            _LOGGER.debug("Waiting for response message (timeout=%i)...", timeout)
 
             try:
-                d = await asyncio.wait_for(self._read_messages(), timeout=timeout)
+                d = await self._await_messages(timeout=timeout)
 
                 for msg in d:
                     if msg["command"] == 1 or msg["command"] == 2:
-                        return msg
+                        # Apply message origin filter (optional)
+                        if origin == None or (msg["origin"] == origin & 0xFF):
+                            _LOGGER.debug("Response = {%s}", msg)
+                            return msg
             except Exception as e:
                 _LOGGER.warning(f"Failed to read messages: {e}")
             finally:
-                # Shorten the timeout for the next loop iteration to account for time already spent waiting
-                timeout -= asyncio.get_event_loop().time() - start_t
+                # Check the time already spent waiting, break if timed out
+                if timeout and (asyncio.get_event_loop().time() - start_t) > timeout:
+                    _LOGGER.warning("Timed out waiting for ACK/NACK response")
+                    break
 
     async def poll_bus_devices(self):
         await self.send_message(destination=0xFFFF, command=10, data1=0, data2=0)
-
-    async def _polling_periodically(self, polling_interval):
-        while True:
-            await asyncio.sleep(polling_interval)
-            await self.poll_bus_devices()
 
     async def _open_connection(self):
         if (
@@ -168,18 +174,22 @@ class IngeniumBUSingCommunication:
 
         self._reader = self._writer = None
 
-    async def _read_messages(self):
+    async def _await_messages(self, timeout: int | None = None):
+        """Blocking read messages. Multiple calls await the same StreamReader co-routine."""
         try:
             if not self._future_messages or self._future_messages.done():
-                self._future_messages = asyncio.create_task(self._await_messages())
+                self._future_messages = asyncio.create_task(self._read_messages())
 
-            res = await self._future_messages
+            if timeout and timeout > 0:
+                res = await asyncio.wait_for(self._future_messages, timeout)
+            else:
+                res = await self._future_messages
+
+            return res
         finally:
             self._future_messages = False
 
-        return res
-
-    async def _await_messages(self):
+    async def _read_messages(self):
         await self._open_connection()
 
         # Read up to 100 datagrams at the time
@@ -187,9 +197,10 @@ class IngeniumBUSingCommunication:
 
         data = await self._reader.read(MAX_READ)
 
-        if not data:
-            if self._reader.at_eof():
-                self._reader = None
+        # Invalidate reader when connection closed
+        if self._reader.at_eof():
+            self._reader = None
+        if data == False or len(data) == 0:
             raise IOError("Lost connection")
 
         decoded_messages = IngeniumBUSingDatagram.decode(data)
@@ -198,7 +209,7 @@ class IngeniumBUSingCommunication:
 
         return decoded_messages
 
-    async def _flush_buffer(self, cb, delay: None | float):
+    async def _flush_buffer(self, cb: Callable, delay: None | float):
         """Async flush message buffer content to callback"""
         if not delay is None and delay > 0:
             # Delay a little longer for more messages to arrive
@@ -209,8 +220,7 @@ class IngeniumBUSingCommunication:
             _LOGGER.debug(f"Flushing {len(msgs)} message(s) from buffer")
             self._msg_buffer = []
             # Trigger callback with message buffer contents
-            if not cb is None:
-                cb(msgs)
+            cb(msgs)
 
 
 class IngeniumBUSingDatagram:
