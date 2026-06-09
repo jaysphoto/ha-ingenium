@@ -1,7 +1,7 @@
 """Basic tests for the Ingenium integration."""
 
 import pytest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, AsyncMock
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -119,7 +119,7 @@ async def test_with_async_init(hass, dev):
         dev = Device(hass, entry)
 
         # Patch the device Comms to avoid real network calls and to verify listener setup
-        dev._comm = Mock(listener=Mock())
+        dev._comm = Mock(listener=Mock(), _open_connection=AsyncMock())
 
         result = await dev.async_initialize_device()
 

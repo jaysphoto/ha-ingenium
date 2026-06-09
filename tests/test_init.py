@@ -28,6 +28,7 @@ async def test_setup_entry(hass):
 
     with (
         patch.object(Device, "async_initialize_device", return_value=True),
+        patch.object(Device, "_trigger_bus_device_report") as mock_bus_device_init,
         patch.object(
             hass.config_entries, "async_forward_entry_setups", new_callable=AsyncMock
         ) as mock_forward,
@@ -38,6 +39,7 @@ async def test_setup_entry(hass):
         assert isinstance(entry.runtime_configuration["coordinator"], Device)
         assert isinstance(entry.runtime_configuration["devices"], list)
         mock_forward.assert_called_once()
+        mock_bus_device_init.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -49,6 +51,7 @@ async def test_unload(hass):
 
     with (
         patch.object(Device, "async_initialize_device", return_value=True),
+        patch.object(Device, "_trigger_bus_device_report"),
         patch.object(
             hass.config_entries, "async_forward_entry_setups", new_callable=AsyncMock
         ) as mock_forward,
@@ -77,6 +80,7 @@ async def test_reload(hass):
 
     with (
         patch.object(Device, "async_initialize_device", return_value=True),
+        patch.object(Device, "_trigger_bus_device_report"),
         patch.object(
             hass.config_entries, "async_forward_entry_setups", new_callable=AsyncMock
         ) as mock_forward,
@@ -105,6 +109,7 @@ async def test_remove_config_entry_device(hass):
 
     with (
         patch.object(Device, "async_initialize_device", return_value=True),
+        patch.object(Device, "_trigger_bus_device_report"),
         patch.object(
             hass.config_entries, "async_forward_entry_setups", new_callable=AsyncMock
         ),
@@ -136,6 +141,7 @@ async def test_remove_config_entry_known_device(hass):
 
     with (
         patch.object(Device, "async_initialize_device", return_value=True),
+        patch.object(Device, "_trigger_bus_device_report"),
         patch.object(
             hass.config_entries, "async_forward_entry_setups", new_callable=AsyncMock
         ),
