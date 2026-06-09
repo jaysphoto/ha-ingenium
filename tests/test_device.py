@@ -1,7 +1,9 @@
 """Basic tests for the Ingenium integration."""
 
 import pytest
-from unittest.mock import patch, Mock, AsyncMock
+
+from typing import Callable
+from unittest.mock import patch, Mock, AsyncMock, ANY
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -14,6 +16,8 @@ from custom_components.ingenium.const import (
     CONF_DEVICE,
     TASK_BUSING,
 )
+
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 
 @pytest.fixture
@@ -126,6 +130,115 @@ async def test_with_async_init(hass, dev):
         assert result is None
         assert mock_create_task.call_count == 1
         assert mock_create_task.call_args[0][1] == f"{DOMAIN}_{TASK_BUSING}"
+
+
+@pytest.mark.asyncio
+async def test_with_async_update(hass, dev):
+    """ "Test that async update interval that polls BUSing communication and listener."""
+    hass.data.setdefault(DOMAIN, {})
+
+    config_data = {"mac": "A123B", "host": "192.168.1.100"}
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+
+    with (
+        patch.object(hass, "async_create_background_task") as mock_create_task,
+    ):
+        dev = Device(hass, entry)
+        dev._listener = AsyncMock()
+
+        async def send_message(cb: Callable, destination, command, data1, data2):
+            await cb({"command": 1})
+
+        async def await_response(origin):
+            return {"command": 1}
+
+        with (
+            patch.object(
+                dev._comm, "send_message", side_effect=send_message, autospec=True
+            ) as mock_send_message,
+            patch.object(
+                dev._comm, "await_response", side_effect=await_response, autospec=True
+            ) as mock_await_response,
+        ):
+            await dev._async_update_data()
+
+            mock_send_message.assert_awaited_once()
+            mock_send_message.assert_called_with(
+                command=10, destination=0xFF, data1=ANY, data2=ANY, cb=ANY
+            )
+
+            mock_await_response.assert_awaited_once()
+            mock_await_response.assert_called_with(origin=0xFF)
+
+
+@pytest.mark.asyncio
+async def test_with_async_update_request_nack(hass, dev):
+    """ "Test that async update interval that polls BUSing communication and listener."""
+    hass.data.setdefault(DOMAIN, {})
+
+    config_data = {"mac": "A123B", "host": "192.168.1.100"}
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+
+    with (
+        patch.object(hass, "async_create_background_task") as mock_create_task,
+    ):
+        dev = Device(hass, entry)
+        dev._listener = AsyncMock()
+
+        async def send_message(cb: Callable, destination, command, data1, data2):
+            await cb({"command": 2})
+
+        async def await_response(origin):
+            return {"command": 1}
+
+        with (
+            patch.object(
+                dev._comm, "send_message", side_effect=send_message
+            ) as mock_send_message,
+            patch.object(
+                dev._comm, "await_response", side_effect=await_response
+            ) as mock_await_response,
+            pytest.raises(UpdateFailed) as e,
+        ):
+            await dev._async_update_data()
+
+            mock_send_message.assert_awaited_once()
+            mock_await_response.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_with_async_update_request_timeout(hass, dev):
+    """ "Test that async update interval that polls BUSing communication and listener."""
+    hass.data.setdefault(DOMAIN, {})
+
+    config_data = {"mac": "A123B", "host": "192.168.1.100"}
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+
+    with (
+        patch.object(hass, "async_create_background_task") as mock_create_task,
+    ):
+        dev = Device(hass, entry)
+        dev._listener = AsyncMock()
+
+        async def send_message(cb: Callable, destination, command, data1, data2):
+            await cb({"command": 1})
+
+        with (
+            patch.object(
+                dev._comm, "send_message", side_effect=send_message
+            ) as mock_send_message,
+            patch.object(
+                dev._comm, "await_response", side_effect=TimeoutError
+            ) as mock_await_response,
+            pytest.raises(UpdateFailed) as e,
+        ):
+            await dev._async_update_data()
+
+            mock_send_message.assert_awaited_once()
+            mock_await_response.assert_awaited_once()
 
 
 def test_bus_message_register_write(dev):

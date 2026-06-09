@@ -75,7 +75,7 @@ class IngeniumBUSingCommunication:
         data2: int,
         _origin: int = None,
         cb: None | Callable = None,
-    ):
+    ) -> None:
         """Send structured Ingenium BUSing message."""
         origin = 0xFFFF  # Start bytes
         message = IngeniumBUSingDatagram.encode(
@@ -87,8 +87,6 @@ class IngeniumBUSingCommunication:
         # (optional) Create response callback co-routine, matching reply origin with request
         if not cb is None:
             asyncio.create_task(cb(await self.await_response(origin=destination)))
-
-        return True
 
     async def send_message_raw(self, message: bytearray | bytes) -> None:
         """Send raw Ingenium BUSing message."""

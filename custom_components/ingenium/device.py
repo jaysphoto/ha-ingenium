@@ -82,6 +82,7 @@ class Device(DataUpdateCoordinator):
 
         self._config_entry = config_entry
         self._comm = IngeniumBUSingCommunication(self.host)
+        self._listener = None
         self._sync_request_ack_event = asyncio.Event()
         self._sync_last_response_msg = None
 
@@ -158,16 +159,15 @@ class Device(DataUpdateCoordinator):
                 listener_task = None
 
                 # Create a listener co-routine if the hass background task isn't already running
-                if self._listener == None:
+                if self.listener == None:
                     listener_task = asyncio.create_task(
                         self._comm.listener(self._bus_message)
                     )
                     _LOGGER.debug("Listener created")
 
                 await self._trigger_bus_device_report(cb=self._bus_device_report_ack)
-                # Wait for the request to back ACK'd
+                # Wait for ACK response to arrive at callback method and validate
                 await self._sync_request_ack_event.wait()
-
                 validate_response(self._sync_last_response_msg)
 
                 # Await and validate second (closing) ACK message
@@ -211,7 +211,7 @@ class Device(DataUpdateCoordinator):
         } in self._config_entry.data.get(CONF_IGNORE_AVAILABILITY, [])
 
     async def _trigger_bus_device_report(self, cb: Callable | None = None) -> bool:
-        return await self._comm.send_message(
+        await self._comm.send_message(
             destination=0xFF, command=10, data1=0, data2=0, cb=cb
         )
 
