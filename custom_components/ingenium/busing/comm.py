@@ -50,7 +50,7 @@ class IngeniumBUSingCommunication:
                 while True:
                     [
                         self._msg_buffer.append(msg)
-                        for msg in await self._read_messages()
+                        for msg in await self._await_messages()
                     ]
 
                     # Schedule (always) 1 task for flushing the message buffer
@@ -86,23 +86,18 @@ class IngeniumBUSingCommunication:
 
         # (optional) Create response callback co-routine, matching reply origin with request
         if not cb is None:
-            cb(await self.await_response(origin=destination))
+            asyncio.create_task(cb(await self.await_response(origin=destination)))
 
-    async def send_message_raw(self, message: bytearray | bytes):
+        return True
+
+    async def send_message_raw(self, message: bytearray | bytes) -> None:
         """Send raw Ingenium BUSing message."""
         await self._open_connection()
 
-        try:
-            _LOGGER.debug("Sending raw message: %s", message.hex())
-            self._writer.write(message)
+        _LOGGER.debug("Sending raw message: %s", message.hex())
 
-            await self._writer.drain()
-
-        except IOError as e:
-            _LOGGER.error("Failed to send message: %s", e)
-            return False
-
-        return True
+        self._writer.write(message)
+        await self._writer.drain()
 
     async def await_response(self, origin=int | None) -> dict | None:
         """Wait for a matching response, up until the value of response_timeout (in seconds)."""
@@ -122,13 +117,17 @@ class IngeniumBUSingCommunication:
                         if origin == None or (msg["origin"] == origin & 0xFF):
                             _LOGGER.debug("Response = {%s}", msg)
                             return msg
-            except Exception as e:
+            except IOError as e:
                 _LOGGER.warning(f"Failed to read messages: {e}")
+                raise e
             finally:
-                # Check the time already spent waiting, break if timed out
-                if timeout and (asyncio.get_event_loop().time() - start_t) > timeout:
-                    _LOGGER.warning("Timed out waiting for ACK/NACK response")
-                    break
+                if self._response_timeout is not None:
+                    # Check the time already spent waiting, break if timed out
+                    timeout = self._response_timeout - (
+                        asyncio.get_event_loop().time() - start_t
+                    )
+                    if timeout <= 0:
+                        raise asyncio.TimeoutError
 
     async def poll_bus_devices(self):
         await self.send_message(destination=0xFFFF, command=10, data1=0, data2=0)
@@ -186,6 +185,8 @@ class IngeniumBUSingCommunication:
                 res = await self._future_messages
 
             return res
+        except TimeoutError as e:
+            raise asyncio.TimeoutError(e)
         finally:
             self._future_messages = False
 
