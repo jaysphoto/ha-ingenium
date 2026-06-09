@@ -66,9 +66,7 @@ async def main(
                     Received datagram: {'raw': 'fefe04000b000bff01', 'command': 4, 'origin': 11, 'destination': 11, 'data1': 255, 'data2': 1}
                     Received datagram: {'raw': 'fefe01fefe000b0101', 'command': 1, 'origin': 65278, 'destination': 11, 'data1': 0, 'data2': 0}
             """
-            tg.create_task(
-                client.send_message_raw(bytes.fromhex(raw_msg))
-            )
+            tg.create_task(client.send_message_raw(bytes.fromhex(raw_msg)))
 
     if listen or polling_interval is not None:
         """BUSing polling and listen operations both run until cancelled """
