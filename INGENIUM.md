@@ -34,6 +34,7 @@ The general format of a BUSing message is:
 | Request       | Write register value          | 4     |
 | Request       | Read device EEPROM value      | 5     |
 | Request       | Write device EEPROM value     | 6     |
+| Request       | Report diagnostics            | 9     |
 | Request       | Report all register values    | 10    |
 
 ### Datagram encoding/decoding
@@ -50,26 +51,49 @@ Below are some reverse engineering notes that provide more insight in how this d
 
 | Port        | Description                                                           |
 | ----------- | --------------------------------------------------------------------- |
-| `tcp/21`    | FTP access*, generally used for device updates                        |
-| `tcp/23`    | Telnet for maintenance access*                                        |
+| `tcp/21`    | FTP access, generally used for device updates\*                       |
+| `tcp/23`    | Telnet for maintenance access\*                                       |
 | `tcp/8000`  | Web server / -interface                                               |
 | `tcp/12347` | ETHBUSIII daemon, modbus-like protocol for communicating with devices |
 
-*) Touch device access uses default credentials
+\*) Touch device access uses default credentials
 
 ### Web server
 
-Initialization of the client is initially web based (port 8000 webserver)
+The Touch device has a [boa webserver](https://en.wikipedia.org/wiki/Boa_(web_server)), this is its `boa.conf` file:
+
+```
+Port 8000
+User root
+Group root
+ErrorLog /dev/console
+AccessLog /dev/null
+ServerName Ingenium
+DocumentRoot /Ingenium
+DirectoryIndex index.html
+KeepAliveMax 1000
+KeepAliveTimeout 10
+MimeTypes /etc/mime.types
+DefaultType text/plain
+CGIPath /bin
+AddType application/x-httpd-cgi cgi
+```
+
+The SmartTouch Plus (ST2) self-reports as `Server: Boa/0.94.13`. The Android/iOS client initially pulls configuration for a local network device over port 8000 from the webserver:
 
 | URI                   | Description                                             |
 | --------------------- | ------------------------------------------------------- |
+| `/Alarmas.dat`        | List (names) of Intrusion, Fire detection etc. alarms   |
 | `/CONFIG.TXT`         | Touch display device configuration                      |
 | `/CONFIG_NET.TXT`     | Touch display device network configuration              |
+| `/EEPROM`             | Flash memory ? (256 bytes of data)                      |
+| `/Escenas.h`          | Pre-programmed scene configurations file                |
+| `/Instal.dat`         | List of connecting BUSing devices with their properties |
 | `/SiDEVer`            | Version string of the Development KIT                   |
 | `/firma.dat`          | Information on last firmware update of touch device     |
 | `/kernel_version.txt` | Kernel version string of the touch device               |
-| `/Instal.dat`         | List of connecting BUSing devices with their properties |
 | `/dir_busing`         | BUSing address of the device, not listed in Instal.dat  |
+| `/plus`               | Contains 'yes' or 'no' string, indicating ST model      |
 | `/v3_0`               | Indicates (later?) V3.0 devices or KNX type device      |
 
 ## Android Application
@@ -78,7 +102,7 @@ Android app : `com.ingenium.ingeniumasc`
 
 ### Initialization sequence
 
-Once the app is configured (with the local IP address  or Cloud username/password) and the smart touch device or ETHbus gateway is accessed, the app goes through the folowing general sequence
+Once the app is configured (with the local IP address or Cloud username/password) and the smart touch device or ETHbus gateway is accessed, the app goes through the folowing general sequence
 
 #### Step 1: Ingenium MainThread cargar activity
 
