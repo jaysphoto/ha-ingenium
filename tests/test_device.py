@@ -241,6 +241,48 @@ async def test_with_async_update_request_timeout(hass, dev):
             mock_await_response.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_with_async_update_listener(hass, dev):
+    """ "Test that async update interval that polls BUSing communication and listener."""
+    hass.data.setdefault(DOMAIN, {})
+
+    config_data = {"mac": "A123B", "host": "192.168.1.100"}
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+
+    with (
+        patch.object(hass, "async_create_background_task"),
+    ):
+        dev = Device(hass, entry)
+        dev._listener = None
+
+        async def send_message(cb: Callable, destination, command, data1, data2):
+            await cb({"command": 1})
+
+        async def await_response(origin):
+            return {"command": 1}
+
+        async def listener(callback):
+            return AsyncMock()
+
+        with (
+            patch.object(
+                dev._comm, "send_message", side_effect=send_message, autospec=True
+            ) as mock_send_message,
+            patch.object(
+                dev._comm, "await_response", side_effect=await_response, autospec=True
+            ) as mock_await_response,
+            patch.object(
+                dev._comm, "listener", side_effect=listener, autospec=True
+            ) as mock_listener,
+        ):
+            await dev._async_update_data()
+
+            mock_send_message.assert_awaited_once()
+            mock_await_response.assert_awaited_once()
+            mock_listener.assert_called_once()
+
+
 def test_bus_message_register_write(dev):
     """Test handling of BUS message with command 1 (register write) and origin 0xFEFE."""
     with patch.object(dev, "async_set_updated_data") as mock_set_data:
