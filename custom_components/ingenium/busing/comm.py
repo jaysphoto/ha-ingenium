@@ -12,26 +12,31 @@ class IngeniumBUSingCommunication:
 
     DEFAULT_PORT = 12347
     RESPONSE_TIMEOUT = 15
-    RECONNECT_DELAY = 5
     RECONNECT_RETRIES = 5
+    RECONNECT_DELAY = 5
     BUFFER_DELAY = 0.2
-    DEFAULT_POLLING_INTERVAL = 300
+    DEFAULT_POLLING_INTERVAL = 180
 
     def __init__(
         self,
         host: str,
         port: int = DEFAULT_PORT,
-        retries: int = RECONNECT_RETRIES,
+        connect_retries: int = RECONNECT_RETRIES,
+        reconnect_delay: int = RECONNECT_DELAY,
         response_timeout: int = RESPONSE_TIMEOUT,
     ):
         self._host = host
         self._port = port
         self._reader = None
         self._writer = None
-        self._retries = retries
+        self._retries = connect_retries
+        self._reconnect_delay = reconnect_delay
         self._response_timeout = response_timeout
         self._msg_buffer = []
         self._future_messages = False
+        # asyncio Lock/Task used to allow multiple coroutines to await the same Stream reader
+        self._reader_lock = asyncio.Lock()
+        self._reader_task: asyncio.Task | None = None
 
     def set_response_timeout(self, timeout: int | None) -> None:
         """Change response timeout value for the next awaited response"""
@@ -60,7 +65,6 @@ class IngeniumBUSingCommunication:
                         )
 
             except IOError as e:
-                _LOGGER.warning("IOError occurred: %s", e)
                 continue
 
             except asyncio.CancelledError:
@@ -84,9 +88,11 @@ class IngeniumBUSingCommunication:
 
         await self.send_message_raw(message)
 
-        # (optional) Create response callback co-routine, matching reply origin with request
+        # (optional) Create response callback co-routine, waiting for reply with matching origin
         if not cb is None:
-            asyncio.create_task(cb(await self.await_response(origin=destination)))
+            asyncio.create_task(
+                self._do_callback(cb, await self.await_response(origin=destination))
+            )
 
     async def send_message_raw(self, message: bytearray | bytes) -> None:
         """Send raw Ingenium BUSing message."""
@@ -97,7 +103,7 @@ class IngeniumBUSingCommunication:
         self._writer.write(message)
         await self._writer.drain()
 
-    async def await_response(self, origin=int | None) -> dict | None:
+    async def await_response(self, origin: int | None = None) -> dict | None:
         """Wait for a matching response, up until the value of response_timeout (in seconds)."""
         timeout = self._response_timeout
 
@@ -113,11 +119,11 @@ class IngeniumBUSingCommunication:
                     if msg["command"] == 1 or msg["command"] == 2:
                         # Apply message origin filter (optional)
                         if origin == None or (msg["origin"] == origin & 0xFF):
-                            _LOGGER.debug("Response = {%s}", msg)
+                            _LOGGER.debug("Matched Response Message: %s", msg)
                             return msg
             except IOError as e:
-                _LOGGER.warning(f"Failed to read messages: {e}")
-                raise e
+                _LOGGER.warning("IOError occurred: %s", e)
+                continue
             finally:
                 if self._response_timeout is not None:
                     # Check the time already spent waiting, break if timed out
@@ -133,15 +139,12 @@ class IngeniumBUSingCommunication:
     async def _open_connection(self):
         if (
             self._reader is not None
+            and not self._reader.at_eof()
             and self._writer is not None
-            and not self._writer.is_closing()
         ):
             return
 
-        if self._writer is not None:
-            await self._close_connection()
-
-        # Connection is alive - reset retries
+        # Starting new connection - reset retries
         retries = 1
 
         while True:
@@ -153,60 +156,57 @@ class IngeniumBUSingCommunication:
                 break
 
             except (IOError, ConnectionRefusedError) as e:
-                _LOGGER.warning(
-                    f"{e}, attempt {retries}/{self._retries}, retrying in {self.RECONNECT_DELAY} seconds"
-                )
                 retries += 1
-
                 if retries > self._retries:
                     raise e
 
-                await asyncio.sleep(self.RECONNECT_DELAY)
+                _LOGGER.warning(
+                    f"{e}, attempt {retries}/{self._retries}, retrying in {self.RECONNECT_DELAY} seconds"
+                )
+                await asyncio.sleep(self._reconnect_delay)
 
     async def _close_connection(self):
+        # Cancel any running reader tasks
+        if self._reader_task:
+            self._reader_task.cancel()
+
+        # Close and Wait for Stream Writer
         if not self._writer.is_closing():
             self._writer.close()
-
         await self._writer.wait_closed()
 
+        # Reset Stream Reader and -Writer
         self._reader = self._writer = None
 
     async def _await_messages(self, timeout: int | None = None):
         """Blocking read messages. Multiple calls await the same StreamReader co-routine."""
-        try:
-            if not self._future_messages or self._future_messages.done():
-                self._future_messages = asyncio.create_task(self._read_messages())
+        # If there's an in-progress read, wait on it
+        if self._reader_task is None or self._reader_task.done():
+            # spawn the actual read operation
+            self._reader_task = asyncio.create_task(self._perform_read())
 
-            if timeout and timeout > 0:
-                res = await asyncio.wait_for(self._future_messages, timeout)
-            else:
-                res = await self._future_messages
+        if timeout and timeout > 0:
+            res = await asyncio.wait_for(self._reader_task, timeout)
+        else:
+            res = await self._reader_task
+        return res
 
-            return res
-        except TimeoutError as e:
-            raise asyncio.TimeoutError(e)
-        finally:
-            self._future_messages = False
+    async def _perform_read(self):
+        """Perform a single read and set the shared future for awaiting coroutines."""
+        async with self._reader_lock:
+            await self._open_connection()
 
-    async def _read_messages(self):
-        await self._open_connection()
+            MAX_READ = 9 * 100
+            data = await self._reader.read(MAX_READ)
 
-        # Read up to 100 datagrams at the time
-        MAX_READ = 9 * 100
+            if data == False or data is None or len(data) == 0:
+                self._reader = None
+                raise IOError("Lost connection")
 
-        data = await self._reader.read(MAX_READ)
+            decoded_messages = IngeniumBUSingDatagram.decode(data)
+            [_LOGGER.debug(f"Decoded message: {msg}") for msg in decoded_messages]
 
-        # Invalidate reader when connection closed
-        if self._reader.at_eof():
-            self._reader = None
-        if data == False or len(data) == 0:
-            raise IOError("Lost connection")
-
-        decoded_messages = IngeniumBUSingDatagram.decode(data)
-
-        [_LOGGER.debug(f"Decoded message: {msg}") for msg in decoded_messages]
-
-        return decoded_messages
+            return decoded_messages
 
     async def _flush_buffer(self, cb: Callable, delay: None | float):
         """Async flush message buffer content to callback"""
@@ -218,8 +218,11 @@ class IngeniumBUSingCommunication:
         if len(msgs) > 0:
             _LOGGER.debug(f"Flushing {len(msgs)} message(s) from buffer")
             self._msg_buffer = []
-            # Trigger callback with message buffer contents
-            cb(msgs)
+            asyncio.create_task(self._do_callback(cb, msgs))
+
+    async def _do_callback(self, cb: Callable, msgs):
+        # Trigger callback with message buffer contents
+        cb(msgs)
 
 
 class IngeniumBUSingDatagram:
