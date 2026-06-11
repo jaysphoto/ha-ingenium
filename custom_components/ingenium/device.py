@@ -130,7 +130,7 @@ class Device(DataUpdateCoordinator):
             )
 
             # First time get all device registers
-            self._trigger_bus_device_report()
+            await self._trigger_bus_device_report()
 
     def get_devices(self) -> list[BUSDevice]:
         """Return the devices for the ingenium touch device."""
