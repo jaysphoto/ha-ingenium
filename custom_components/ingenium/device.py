@@ -74,7 +74,9 @@ class Device(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name="IngeniumDevice",
-            update_interval=timedelta(seconds=300),
+            update_interval=timedelta(
+                seconds=IngeniumBUSingCommunication.DEFAULT_POLLING_INTERVAL
+            ),
         )
 
         assert CONF_HOST in config_entry.data
@@ -85,6 +87,7 @@ class Device(DataUpdateCoordinator):
         self._listener = None
         self._sync_request_ack_event = asyncio.Event()
         self._sync_last_response_msg = None
+        self._background_listener_timeout = timedelta(seconds=300)
 
     @property
     def host(self) -> str:
@@ -117,12 +120,17 @@ class Device(DataUpdateCoordinator):
             # sw_version=await hass.async_add_executor_job(http.sw_version)
         )
 
-        await self._comm._open_connection()
+        # (Optional) background listener task for BUSing communication
+        if self._background_listener_timeout is not None:
+            self._listener = self.hass.async_create_background_task(
+                self._async_background_listener(
+                    self._background_listener_timeout.total_seconds()
+                ),
+                f"{DOMAIN}_{TASK_BUSING}",
+            )
 
-        # Setup listener task for BUSing communication
-        self._listener = self.hass.async_create_background_task(
-            self._comm.listener(self._bus_message), f"{DOMAIN}_{TASK_BUSING}"
-        )
+            # First time get all device registers
+            await self._trigger_bus_device_report()
 
     def get_devices(self) -> list[BUSDevice]:
         """Return the devices for the ingenium touch device."""
@@ -143,43 +151,89 @@ class Device(DataUpdateCoordinator):
 
         return identifiers
 
+    async def _async_background_listener(self, timeout: int):
+        """Endless loop waiting for BUSIng messages to arrive and process"""
+        while True:
+            try:
+                """
+                    Ingenium BUSing connection closes itself around ~ 7 minutes (reasons unknown).
+                    We run the BUSing listener for 5 minutes, then re-open the connection and continue.
+                """
+                async with async_timeout.timeout(timeout):
+                    await self._comm.listener(self._bus_message)
+
+            except asyncio.TimeoutError:
+                _LOGGER.info(
+                    "Timed out, cycling BUSing connection and restart listener"
+                )
+                self._comm._close_connection()
+                continue
+            except asyncio.CancelledError:
+                # Background task was cancelled, probably hass shutdown or integration reload
+                break
+
     async def _async_update_data(self):
         """
-        Periodically request BUSing devices to self-report registers
+        Async update method called by hass every self.update_interval seconds. This timer is also reset
+        by the _async_background_listener, when it receives data. If there is BUSing data received by that
+        loop at regular intervals, this method may never get called.
+
+        It serves as a fallback if the data "PULL" mechanism fails, or the integration can be put in a
+        PULL-only mode entirely.
         """
-        async with async_timeout.timeout(15):
+        _LOGGER.info("Triggering _async_update_data device register report")
 
-            def validate_response(msg):
-                if msg == None or msg["command"] == 2:
-                    raise UpdateFailed(f"Received invalid or NACK response: {msg}")
+        def validate_response(msg):
+            if msg == None or msg["command"] == 2:
+                raise UpdateFailed(f"Received invalid or NACK response: {msg}")
 
-            try:
+        try:
+            listener_task = None
+
+            async with async_timeout.timeout(15):
                 self._sync_last_response_msg = None
                 self._sync_request_ack_event.clear()
-                listener_task = None
 
                 # Create a listener co-routine if the hass background task isn't already running
-                if self.listener == None:
+                if self.listener == None or self.listener.done():
                     listener_task = asyncio.create_task(
                         self._comm.listener(self._bus_message)
                     )
                     _LOGGER.debug("Listener created")
+                else:
+                    _LOGGER.info("Background Listener Task: %s", self.listener)
 
                 await self._trigger_bus_device_report(cb=self._bus_device_report_ack)
+
                 # Wait for ACK response to arrive at callback method and validate
                 await self._sync_request_ack_event.wait()
+                _LOGGER.debug("Received first _bus_device_report_ack callback")
                 validate_response(self._sync_last_response_msg)
 
                 # Await and validate second (closing) ACK message
-                validate_response(await self._comm.await_response(origin=0xFF))
-            except (asyncio.TimeoutError, TimeoutError) as err:
-                raise UpdateFailed(f"Communication Timeout: {err}")
-            except IOError as err:
-                raise UpdateFailed(f"Error communicating: {err}")
-            finally:
-                if listener_task is not None:
-                    listener_task.cancel()
-                    _LOGGER.debug("Listener cancelled")
+                res = await self._comm.await_response(origin=0xFF)
+                _LOGGER.debug("Received closing response message")
+                validate_response(res)
+
+                # Data sent to Entities for processing. We rely on the listener Co-routine instead for that job.
+                return {}
+        except (asyncio.TimeoutError, TimeoutError) as err:
+            raise UpdateFailed(f"Communication Timeout: {err}")
+        except IOError as err:
+            raise UpdateFailed(f"Error communicating: {err}")
+        finally:
+            if listener_task is not None:
+                listener_task.cancel()
+                _LOGGER.debug("Listener cancelled")
+
+    async def _trigger_bus_device_report(self, cb: Callable | None = None) -> None:
+        await self._comm.send_message(
+            destination=0xFF, command=10, data1=0, data2=0, cb=cb
+        )
+
+    def _bus_device_report_ack(self, msg) -> None:
+        self._sync_last_response_msg = msg
+        self._sync_request_ack_event.set()
 
     def _all_devices(self) -> list[BUSDevice]:
         install_config = self._config_entry.data.get(CONF_DEVICE, {}).get(
@@ -209,15 +263,6 @@ class Device(DataUpdateCoordinator):
             "output": d.output,
             "address": d.address,
         } in self._config_entry.data.get(CONF_IGNORE_AVAILABILITY, [])
-
-    async def _trigger_bus_device_report(self, cb: Callable | None = None) -> bool:
-        await self._comm.send_message(
-            destination=0xFF, command=10, data1=0, data2=0, cb=cb
-        )
-
-    async def _bus_device_report_ack(self, msg) -> None:
-        self._sync_last_response_msg = msg
-        self._sync_request_ack_event.set()
 
     def _bus_message(self, msgs):
         entity_updates = {}

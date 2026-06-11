@@ -77,7 +77,7 @@ async def main(
                     async def polling_periodically(interval: int):
                         while True:
                             await asyncio.sleep(interval)
-                            await poll_bus_devices()
+                            await poll_bus_devices(client)
 
                     # Schedule polling messages at the configured interval
                     tg.create_task(polling_periodically(polling_interval))

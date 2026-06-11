@@ -1,6 +1,7 @@
 """Basic tests for the Ingenium integration."""
 
 import pytest
+import asyncio
 
 from typing import Callable
 from unittest.mock import patch, Mock, AsyncMock, ANY
@@ -117,19 +118,27 @@ async def test_with_async_init(hass, dev):
     entry = MockConfigEntry(domain=DOMAIN, data=config_data)
     entry.add_to_hass(hass)
 
+    dev = Device(hass, entry)
+
     with (
         patch.object(hass, "async_create_background_task") as mock_create_task,
+        patch.object(dev, "_trigger_bus_device_report") as mock_trigger,
+        patch.object(
+            dev, "_async_background_listener", new_callable=Mock
+        ) as mock_listener,
     ):
-        dev = Device(hass, entry)
-
         # Patch the device Comms to avoid real network calls and to verify listener setup
-        dev._comm = Mock(listener=Mock(), _open_connection=AsyncMock())
+        dev._comm = Mock(
+            listener=Mock(), _open_connection=AsyncMock(), send_message=AsyncMock()
+        )
 
         result = await dev.async_initialize_device()
 
         assert result is None
-        assert mock_create_task.call_count == 1
+        assert dev._background_listener_timeout.total_seconds() == 300
+        assert mock_create_task.assert_called_once
         assert mock_create_task.call_args[0][1] == f"{DOMAIN}_{TASK_BUSING}"
+        assert mock_trigger.assert_called_once
 
 
 @pytest.mark.asyncio
@@ -141,16 +150,18 @@ async def test_with_async_update(hass, dev):
     entry = MockConfigEntry(domain=DOMAIN, data=config_data)
     entry.add_to_hass(hass)
 
+    listener = AsyncMock()
+    listener.done = Mock()
+
     with (
         patch.object(hass, "async_create_background_task") as mock_create_task,
     ):
         dev = Device(hass, entry)
-        dev._listener = AsyncMock()
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 1})
+            cb({"command": 1})
 
-        async def await_response(origin):
+        def await_response(origin):
             return {"command": 1}
 
         with (
@@ -160,6 +171,9 @@ async def test_with_async_update(hass, dev):
             patch.object(
                 dev._comm, "await_response", side_effect=await_response, autospec=True
             ) as mock_await_response,
+            patch.object(
+                dev._comm, "listener", side_effect=listener, autospec=True
+            ) as mock_listener,
         ):
             await dev._async_update_data()
 
@@ -185,10 +199,11 @@ async def test_with_async_update_request_nack(hass, dev):
         patch.object(hass, "async_create_background_task") as mock_create_task,
     ):
         dev = Device(hass, entry)
-        dev._listener = AsyncMock()
+        dev._listener = Mock()
+        dev._listener.done.return_value = True
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 2})
+            cb({"command": 2})
 
         async def await_response(origin):
             return {"command": 1}
@@ -221,10 +236,11 @@ async def test_with_async_update_request_timeout(hass, dev):
         patch.object(hass, "async_create_background_task") as mock_create_task,
     ):
         dev = Device(hass, entry)
-        dev._listener = AsyncMock()
+        dev._listener = Mock()
+        dev._listener.done.return_value = True
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 1})
+            cb({"command": 1})
 
         with (
             patch.object(
@@ -257,7 +273,7 @@ async def test_with_async_update_listener(hass, dev):
         dev._listener = None
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 1})
+            cb({"command": 1})
 
         async def await_response(origin):
             return {"command": 1}
@@ -432,3 +448,88 @@ def test_bus_message_all_ignored(dev):
         dev._bus_message(msgs)
 
         mock_set_data.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_background_listener_timeout(dev):
+    """Test that _async_background_listener handles timeout and restarts."""
+    call_count = 0
+
+    async def listener_side_effect(callback):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise asyncio.TimeoutError()
+        raise asyncio.CancelledError()
+
+    with (
+        patch.object(
+            dev._comm, "listener", side_effect=listener_side_effect
+        ) as mock_listener,
+        patch.object(dev._comm, "_close_connection", new=Mock()) as mock_close,
+    ):
+        await dev._async_background_listener(timeout=5)
+
+        # Verify listener was called twice (timeout, then cancelled)
+        assert mock_listener.call_count == 2
+        # Verify connection was closed once after timeout
+        mock_close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_background_listener_cancelled(dev):
+    """Test that _async_background_listener gracefully handles CancelledError."""
+    with (
+        patch.object(
+            dev._comm, "listener", side_effect=asyncio.CancelledError
+        ) as mock_listener,
+        patch.object(dev._comm, "_close_connection", new=Mock()) as mock_close,
+    ):
+        # Should exit cleanly without raising
+        await dev._async_background_listener(timeout=5)
+
+        # Verify listener was attempted once
+        mock_listener.assert_called_once()
+        # Verify connection was not closed (only on timeout)
+        mock_close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_background_listener_callback(dev):
+    """Test that _async_background_listener passes _bus_message as callback."""
+    with (
+        patch.object(dev, "_bus_message") as mock_bus_message,
+        patch.object(
+            dev._comm, "listener", side_effect=asyncio.CancelledError
+        ) as mock_listener,
+    ):
+        await dev._async_background_listener(timeout=5)
+
+        # Verify listener was called with _bus_message callback
+        mock_listener.assert_called_once_with(mock_bus_message)
+
+
+@pytest.mark.asyncio
+async def test_async_background_listener_timeout_loop(dev):
+    """Test that _async_background_listener continues after timeout."""
+    timeout_count = 0
+
+    async def listener_side_effect(callback):
+        nonlocal timeout_count
+        timeout_count += 1
+        if timeout_count <= 2:
+            raise asyncio.TimeoutError()
+        raise asyncio.CancelledError()
+
+    with (
+        patch.object(
+            dev._comm, "listener", side_effect=listener_side_effect
+        ) as mock_listener,
+        patch.object(dev._comm, "_close_connection", new=Mock()) as mock_close,
+    ):
+        await dev._async_background_listener(timeout=5)
+
+        # Verify listener was called 3 times (2 timeouts, then cancelled)
+        assert mock_listener.call_count == 3
+        # Verify connection was closed twice (once per timeout)
+        assert mock_close.call_count == 2
