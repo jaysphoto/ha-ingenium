@@ -119,6 +119,7 @@ async def test_with_async_init(hass, dev):
 
     with (
         patch.object(hass, "async_create_background_task") as mock_create_task,
+        patch.object(Device, "_trigger_bus_device_report", new=Mock()) as mock_trigger,
     ):
         dev = Device(hass, entry)
 
@@ -141,16 +142,18 @@ async def test_with_async_update(hass, dev):
     entry = MockConfigEntry(domain=DOMAIN, data=config_data)
     entry.add_to_hass(hass)
 
+    listener = AsyncMock()
+    listener.done = Mock()
+
     with (
         patch.object(hass, "async_create_background_task") as mock_create_task,
     ):
         dev = Device(hass, entry)
-        dev._listener = AsyncMock()
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 1})
+            cb({"command": 1})
 
-        async def await_response(origin):
+        def await_response(origin):
             return {"command": 1}
 
         with (
@@ -160,6 +163,9 @@ async def test_with_async_update(hass, dev):
             patch.object(
                 dev._comm, "await_response", side_effect=await_response, autospec=True
             ) as mock_await_response,
+            patch.object(
+                dev._comm, "listener", side_effect=listener, autospec=True
+            ) as mock_listener,
         ):
             await dev._async_update_data()
 
@@ -185,10 +191,11 @@ async def test_with_async_update_request_nack(hass, dev):
         patch.object(hass, "async_create_background_task") as mock_create_task,
     ):
         dev = Device(hass, entry)
-        dev._listener = AsyncMock()
+        dev._listener = Mock()
+        dev._listener.done.return_value = True
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 2})
+            cb({"command": 2})
 
         async def await_response(origin):
             return {"command": 1}
@@ -221,10 +228,11 @@ async def test_with_async_update_request_timeout(hass, dev):
         patch.object(hass, "async_create_background_task") as mock_create_task,
     ):
         dev = Device(hass, entry)
-        dev._listener = AsyncMock()
+        dev._listener = Mock()
+        dev._listener.done.return_value = True
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 1})
+            cb({"command": 1})
 
         with (
             patch.object(
@@ -257,7 +265,7 @@ async def test_with_async_update_listener(hass, dev):
         dev._listener = None
 
         async def send_message(cb: Callable, destination, command, data1, data2):
-            await cb({"command": 1})
+            cb({"command": 1})
 
         async def await_response(origin):
             return {"command": 1}
