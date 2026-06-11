@@ -9,7 +9,6 @@ Upcoming minor versions are planned to receive:
 - Sensors added to the Ingenium Smart Touch device (background, SiDE version, kernel version etc.)
 - Support for list "Scenario" and detect activations on the Ingenium Smart Touch device
 - Improved device detection, potentially broader support (VIIP product range ?)
-- Integration reload and re-configuration options
 - Smart detection and clean-up of stale config entries
 - Continued improvements to stability, performance and small features
 
@@ -34,5 +33,4 @@ Rewrite [README.md](/README.md), add at minimum:
 Ingenium component improvements:
 
 - Separate Ingenium device BUSing inteface logic
-- BUSing device initialization on integration startup, so device status shows up immediately
 - Lock down integration config entry structure with (Type-)Class
