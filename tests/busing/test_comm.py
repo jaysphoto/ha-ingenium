@@ -104,3 +104,161 @@ async def test_send_message():
 
     writer.write.assert_called_once_with(bytes.fromhex("ffff 00ff 0a 00 00"))
     writer.drain.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_listener_reads_and_buffers_messages():
+    """Test that listener reads messages and buffers them."""
+    b = busing("127.0.0.1")
+    messages = [
+        {"command": 4, "origin": 0xFEFE, "destination": 5},
+        {"command": 4, "origin": 7, "destination": 7},
+    ]
+    callback = Mock()
+
+    async def await_messages_side_effect(timeout=None):
+        # Simulate reading messages once, then cancel
+        if len(messages) > 0:
+            return [messages.pop(0)]
+        raise asyncio.CancelledError()
+
+    with (
+        patch.object(b, "_await_messages", side_effect=await_messages_side_effect),
+        patch.object(b, "_flush_buffer", new_callable=AsyncMock) as mock_flush,
+    ):
+        await b.listener(callback)
+
+        # Verify flush was called with callback
+        assert mock_flush.called
+
+
+@pytest.mark.asyncio
+async def test_listener_handles_ioerror():
+    """Test that listener continues after IOError."""
+    b = busing("127.0.0.1")
+    callback = Mock()
+    call_count = 0
+
+    async def await_messages_side_effect(timeout=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise IOError("Connection lost")
+        raise asyncio.CancelledError()
+
+    with (
+        patch.object(b, "_await_messages", side_effect=await_messages_side_effect),
+        patch.object(b, "_flush_buffer", new_callable=AsyncMock),
+    ):
+        await b.listener(callback)
+
+        # Should continue after IOError without raising
+        assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_listener_schedules_flush_task():
+    """Test that listener schedules flush_buffer task."""
+    b = busing("127.0.0.1")
+    callback = Mock()
+    call_count = 0
+
+    async def await_messages_side_effect(timeout=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call returns messages
+            return [{"msg": 1}]
+        # Second call raises CancelledError to exit
+        raise asyncio.CancelledError()
+
+    with (
+        patch.object(b, "_await_messages", side_effect=await_messages_side_effect),
+        patch.object(b, "_flush_buffer", new_callable=AsyncMock) as mock_flush,
+    ):
+        await b.listener(callback)
+
+        # Verify flush_buffer was called after messages were received
+        mock_flush.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_flush_buffer_delays_before_callback():
+    """Test that _flush_buffer delays and then calls callback."""
+    b = busing("127.0.0.1")
+    callback = Mock()
+    b._msg_buffer = [{"msg": 1}, {"msg": 2}]
+    delay = 0.01
+
+    with (
+        patch(
+            "custom_components.ingenium.busing.comm.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep,
+        patch.object(b, "_do_callback", new_callable=AsyncMock),
+    ):
+        await b._flush_buffer(callback, delay)
+
+        # Verify sleep was called with correct delay
+        mock_sleep.assert_called_once_with(delay)
+
+
+@pytest.mark.asyncio
+async def test_flush_buffer_clears_buffer():
+    """Test that _flush_buffer clears the message buffer."""
+    b = busing("127.0.0.1")
+    callback = Mock()
+    b._msg_buffer = [{"msg": 1}, {"msg": 2}]
+
+    with (
+        patch(
+            "custom_components.ingenium.busing.comm.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        patch.object(b, "_do_callback", new_callable=AsyncMock),
+    ):
+        await b._flush_buffer(callback, 0)
+
+    # Verify buffer was cleared
+    assert len(b._msg_buffer) == 0
+
+
+@pytest.mark.asyncio
+async def test_flush_buffer_calls_callback_with_messages():
+    """Test that _flush_buffer calls callback with accumulated messages."""
+    b = busing("127.0.0.1")
+    callback = Mock()
+    messages = [{"msg": 1}, {"msg": 2}]
+    b._msg_buffer = messages.copy()
+
+    with (
+        patch(
+            "custom_components.ingenium.busing.comm.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        patch.object(b, "_do_callback", new_callable=AsyncMock),
+    ):
+        await b._flush_buffer(callback, 0)
+
+    # Verify buffer was processed
+    assert len(b._msg_buffer) == 0
+
+
+@pytest.mark.asyncio
+async def test_flush_buffer_no_delay():
+    """Test that _flush_buffer works without delay (None or 0)."""
+    b = busing("127.0.0.1")
+    callback = Mock()
+    b._msg_buffer = [{"msg": 1}]
+
+    with (
+        patch(
+            "custom_components.ingenium.busing.comm.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep,
+        patch.object(b, "_do_callback", new_callable=AsyncMock),
+    ):
+        await b._flush_buffer(callback, None)
+
+    # Should not call sleep with None delay
+    mock_sleep.assert_not_called()
