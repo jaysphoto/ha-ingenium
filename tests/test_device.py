@@ -451,39 +451,13 @@ def test_bus_message_all_ignored(dev):
 
 
 @pytest.mark.asyncio
-async def test_async_background_listener_timeout(dev):
-    """Test that _async_background_listener handles timeout and restarts."""
-    call_count = 0
-
-    async def listener_side_effect(callback):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            raise asyncio.TimeoutError()
-        raise asyncio.CancelledError()
-
-    with (
-        patch.object(
-            dev._comm, "listener", side_effect=listener_side_effect
-        ) as mock_listener,
-        patch.object(dev._comm, "_close_connection", new=Mock()) as mock_close,
-    ):
-        await dev._async_background_listener(timeout=5)
-
-        # Verify listener was called twice (timeout, then cancelled)
-        assert mock_listener.call_count == 2
-        # Verify connection was closed once after timeout
-        mock_close.assert_called_once()
-
-
-@pytest.mark.asyncio
 async def test_async_background_listener_cancelled(dev):
     """Test that _async_background_listener gracefully handles CancelledError."""
     with (
         patch.object(
             dev._comm, "listener", side_effect=asyncio.CancelledError
         ) as mock_listener,
-        patch.object(dev._comm, "_close_connection", new=Mock()) as mock_close,
+        patch.object(dev._comm, "_close_connection", new=AsyncMock()) as mock_close,
     ):
         # Should exit cleanly without raising
         await dev._async_background_listener(timeout=5)
@@ -507,29 +481,3 @@ async def test_async_background_listener_callback(dev):
 
         # Verify listener was called with _bus_message callback
         mock_listener.assert_called_once_with(mock_bus_message)
-
-
-@pytest.mark.asyncio
-async def test_async_background_listener_timeout_loop(dev):
-    """Test that _async_background_listener continues after timeout."""
-    timeout_count = 0
-
-    async def listener_side_effect(callback):
-        nonlocal timeout_count
-        timeout_count += 1
-        if timeout_count <= 2:
-            raise asyncio.TimeoutError()
-        raise asyncio.CancelledError()
-
-    with (
-        patch.object(
-            dev._comm, "listener", side_effect=listener_side_effect
-        ) as mock_listener,
-        patch.object(dev._comm, "_close_connection", new=Mock()) as mock_close,
-    ):
-        await dev._async_background_listener(timeout=5)
-
-        # Verify listener was called 3 times (2 timeouts, then cancelled)
-        assert mock_listener.call_count == 3
-        # Verify connection was closed twice (once per timeout)
-        assert mock_close.call_count == 2

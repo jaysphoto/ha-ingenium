@@ -46,6 +46,7 @@ class IngeniumBUSingCommunication:
         self,
         callback: Callable,
         buffer_flush_delay: None | float = BUFFER_DELAY,
+        auto_reconnect: bool = True,
     ):
         """TCP client task that connects to device and logs incoming data in hex."""
         flush_task = None
@@ -65,10 +66,18 @@ class IngeniumBUSingCommunication:
                         )
 
             except IOError as e:
-                continue
+                if auto_reconnect:
+                    _LOGGER.warning(
+                        "IOError in listener: %s, reconnecting in %d seconds",
+                        e,
+                        self._reconnect_delay,
+                    )
+                    await asyncio.sleep(self._reconnect_delay)
+                else:
+                    raise
 
             except asyncio.CancelledError:
-                _LOGGER.info("Listener cancelled, closed connection")
+                _LOGGER.info("Listener cancelled, closing connection")
                 break
 
     async def send_message(
@@ -113,9 +122,7 @@ class IngeniumBUSingCommunication:
             _LOGGER.debug("Waiting for response message (timeout=%i)...", timeout)
 
             try:
-                d = await self._await_messages(timeout=timeout)
-
-                for msg in d:
+                for msg in await self._await_messages(timeout=timeout):
                     if msg["command"] == 1 or msg["command"] == 2:
                         # Apply message origin filter (optional)
                         if origin == None or (msg["origin"] == origin & 0xFF):
@@ -123,7 +130,7 @@ class IngeniumBUSingCommunication:
                             return msg
             except IOError as e:
                 _LOGGER.warning("IOError occurred: %s", e)
-                continue
+
             finally:
                 if self._response_timeout is not None:
                     # Check the time already spent waiting, break if timed out
@@ -141,6 +148,7 @@ class IngeniumBUSingCommunication:
             self._reader is not None
             and not self._reader.at_eof()
             and self._writer is not None
+            and not self._writer.is_closing()
         ):
             return
 
@@ -200,8 +208,13 @@ class IngeniumBUSingCommunication:
             data = await self._reader.read(MAX_READ)
 
             if data == False or data is None or len(data) == 0:
+                _LOGGER.warning(
+                    "No data received, closing connection, StreamReader=%s",
+                    self._reader,
+                )
+                e = self._reader.exception()
                 self._reader = None
-                raise IOError("Lost connection")
+                raise IOError("No data received") from e
 
             decoded_messages = IngeniumBUSingDatagram.decode(data)
             [_LOGGER.debug(f"Decoded message: {msg}") for msg in decoded_messages]

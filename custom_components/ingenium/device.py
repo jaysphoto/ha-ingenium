@@ -120,17 +120,22 @@ class Device(DataUpdateCoordinator):
             # sw_version=await hass.async_add_executor_job(http.sw_version)
         )
 
-        # (Optional) background listener task for BUSing communication
-        if self._background_listener_timeout is not None:
-            self._listener = self.hass.async_create_background_task(
-                self._async_background_listener(
-                    self._background_listener_timeout.total_seconds()
-                ),
-                f"{DOMAIN}_{TASK_BUSING}",
-            )
+        try:
+            await self._comm._open_connection()
 
-            # First time get all device registers
-            await self._trigger_bus_device_report()
+            # (Optional) background listener task for BUSing communication
+            if self._background_listener_timeout is not None:
+                self._listener = self.hass.async_create_background_task(
+                    self._async_background_listener(
+                        self._background_listener_timeout.total_seconds()
+                    ),
+                    f"{DOMAIN}_{TASK_BUSING}",
+                )
+
+                # First time get all device registers
+                await self._trigger_bus_device_report()
+        except Exception as e:
+            raise UpdateFailed(f"Error initializing Ingenium device: {e}")
 
     def get_devices(self) -> list[BUSDevice]:
         """Return the devices for the ingenium touch device."""
@@ -157,17 +162,14 @@ class Device(DataUpdateCoordinator):
             try:
                 """
                     Ingenium BUSing connection closes itself around ~ 7 minutes (reasons unknown).
-                    We run the BUSing listener for 5 minutes, then re-open the connection and continue.
+                    We run the BUSing listener until the timeout, then close the connection and repeat.
                 """
                 async with async_timeout.timeout(timeout):
                     await self._comm.listener(self._bus_message)
 
             except asyncio.TimeoutError:
-                _LOGGER.info(
-                    "Timed out, cycling BUSing connection and restart listener"
-                )
-                self._comm._close_connection()
-                continue
+                await self._comm._close_connection()
+
             except asyncio.CancelledError:
                 # Background task was cancelled, probably hass shutdown or integration reload
                 break

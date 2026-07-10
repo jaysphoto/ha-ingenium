@@ -13,6 +13,9 @@ class MockReader(AsyncMock):
 class MockWriter(AsyncMock):
     pass
 
+    def is_closing(self):
+        return False
+
 
 @pytest.mark.asyncio
 async def test_open_connection():
@@ -135,7 +138,7 @@ async def test_listener_reads_and_buffers_messages():
 @pytest.mark.asyncio
 async def test_listener_handles_ioerror():
     """Test that listener continues after IOError."""
-    b = busing("127.0.0.1")
+    b = busing("127.0.0.1", reconnect_delay=0.0001)
     callback = Mock()
     call_count = 0
 
