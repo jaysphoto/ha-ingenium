@@ -11,9 +11,9 @@ class IngeniumBUSingCommunication:
     """Class to Communicate over BUSing protocol with Ingenium server."""
 
     DEFAULT_PORT = 12347
-    RESPONSE_TIMEOUT = 15
     RECONNECT_RETRIES = 5
-    RECONNECT_DELAY = 5
+    RECONNECT_DELAY = 5.0
+    RESPONSE_TIMEOUT = 15.0
     BUFFER_DELAY = 0.2
     DEFAULT_POLLING_INTERVAL = 180
 
@@ -22,24 +22,35 @@ class IngeniumBUSingCommunication:
         host: str,
         port: int = DEFAULT_PORT,
         connect_retries: int = RECONNECT_RETRIES,
-        reconnect_delay: int = RECONNECT_DELAY,
-        response_timeout: int = RESPONSE_TIMEOUT,
+        reconnect_delay: float = RECONNECT_DELAY,
+        response_timeout: float = RESPONSE_TIMEOUT,
     ):
         self._host = host
         self._port = port
         self._reader = None
         self._writer = None
-        self._retries = connect_retries
-        self._reconnect_delay = reconnect_delay
-        self._response_timeout = response_timeout
+        self.set_retries(connect_retries)
+        self.set_reconnect_delay(reconnect_delay)
+        self.set_response_timeout(response_timeout)
         self._msg_buffer = []
         self._future_messages = False
         # asyncio Lock/Task used to allow multiple coroutines to await the same Stream reader
         self._reader_lock = asyncio.Lock()
         self._reader_task: asyncio.Task | None = None
 
-    def set_response_timeout(self, timeout: int | None) -> None:
-        """Change response timeout value for the next awaited response"""
+    def set_retries(self, retries: int) -> None:
+        if type(retries) is not int or retries < 0:
+            raise ValueError("Retries value must be a non-negative integer")
+        self._retries = retries
+
+    def set_reconnect_delay(self, delay: float) -> None:
+        if type(delay) is not float or delay < 0:
+            raise ValueError("Reconnect delay value must be a positive float")
+        self._reconnect_delay = delay
+
+    def set_response_timeout(self, timeout: float) -> None:
+        if type(timeout) is not float or timeout <= 0:
+            raise ValueError("Timeout must be a positive float")
         self._response_timeout = timeout
 
     async def listener(
@@ -140,9 +151,6 @@ class IngeniumBUSingCommunication:
                     if timeout <= 0:
                         raise asyncio.TimeoutError
 
-    async def poll_bus_devices(self):
-        await self.send_message(destination=0xFFFF, command=10, data1=0, data2=0)
-
     async def _open_connection(self):
         if (
             self._reader is not None
@@ -186,15 +194,15 @@ class IngeniumBUSingCommunication:
         # Reset Stream Reader and -Writer
         self._reader = self._writer = None
 
-    async def _await_messages(self, timeout: int | None = None):
+    async def _await_messages(self, timeout: float | None = None) -> List[dict]:
         """Blocking read messages. Multiple calls await the same StreamReader co-routine."""
         # If there's an in-progress read, wait on it
         if self._reader_task is None or self._reader_task.done():
             # spawn the actual read operation
             self._reader_task = asyncio.create_task(self._perform_read())
 
-        if timeout and timeout > 0:
-            res = await asyncio.wait_for(self._reader_task, timeout)
+        if timeout is not None and timeout > 0:
+            res = await asyncio.wait_for(self._reader_task, timeout=timeout)
         else:
             res = await self._reader_task
         return res

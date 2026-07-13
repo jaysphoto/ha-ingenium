@@ -142,6 +142,26 @@ async def test_with_async_init(hass, dev):
 
 
 @pytest.mark.asyncio
+async def test_with_async_init_failure(hass, dev):
+    """ "Test that async initialization of the device catches errors and reports the failure."""
+    hass.data.setdefault(DOMAIN, {})
+
+    config_data = {"mac": "A123B", "host": "192.168.1.100"}
+    entry = MockConfigEntry(domain=DOMAIN, data=config_data)
+    entry.add_to_hass(hass)
+
+    dev = Device(hass, entry)
+
+    with (
+        patch.object(
+            dev._comm, "_open_connection", side_effect=IOError("Connection failed")
+        ),
+        pytest.raises(UpdateFailed),
+    ):
+        await dev.async_initialize_device()
+
+
+@pytest.mark.asyncio
 async def test_with_async_update(hass, dev):
     """ "Test that async update interval that polls BUSing communication and listener."""
     hass.data.setdefault(DOMAIN, {})
@@ -448,6 +468,32 @@ def test_bus_message_all_ignored(dev):
         dev._bus_message(msgs)
 
         mock_set_data.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_background_listener_timeout(dev):
+    """Test that _async_background_listener handles timeout and restarts."""
+    call_count = 0
+
+    async def listener_side_effect(callback):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise asyncio.TimeoutError()
+        raise asyncio.CancelledError()
+
+    with (
+        patch.object(
+            dev._comm, "listener", side_effect=listener_side_effect
+        ) as mock_listener,
+        patch.object(dev._comm, "_close_connection", new=AsyncMock()) as mock_close,
+    ):
+        await dev._async_background_listener(timeout=5)
+
+        # Verify listener was called twice (timeout, then cancelled)
+        assert mock_listener.call_count == 2
+        # Verify connection was closed once after timeout
+        mock_close.assert_called_once()
 
 
 @pytest.mark.asyncio

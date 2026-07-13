@@ -13,8 +13,26 @@ class MockReader(AsyncMock):
 class MockWriter(AsyncMock):
     pass
 
+    def write(self, *args, **kwargs):
+        pass
+
+    async def drain(self):
+        pass
+
     def is_closing(self):
         return False
+
+
+async def test_invalid_values():
+    # Normal initialization should not raise Errors
+    busing("127.0.0.1", connect_retries=1, reconnect_delay=0.1, response_timeout=1.0)
+
+    with pytest.raises(ValueError):
+        busing("127.0.0.1", connect_retries=-1)
+    with pytest.raises(ValueError):
+        busing("127.0.0.1", reconnect_delay=-1)
+    with pytest.raises(ValueError):
+        busing("127.0.0.1", response_timeout=-1)
 
 
 @pytest.mark.asyncio
@@ -58,6 +76,25 @@ async def test_open_connection_retries_exhaused():
 
 
 @pytest.mark.asyncio
+async def test_close_connection():
+    b = busing("127.0.0.1")
+    writer = Mock()
+    writer.is_closing = Mock(return_value=False)
+    writer.close = Mock()
+    writer.wait_closed = AsyncMock()
+
+    with patch.object(asyncio, "open_connection", return_value=[MockReader(), writer]):
+        await b._open_connection()
+        await b._close_connection()
+
+        assert writer.is_closing.is_called_once()
+        assert writer.close.is_called_once()
+
+        assert b._reader is None
+        assert b._writer is None
+
+
+@pytest.mark.asyncio
 async def test_await_response_ack_nack():
     b = busing("127.0.0.1")
 
@@ -96,6 +133,45 @@ async def test_await_response_with_noise():
 
 
 @pytest.mark.asyncio
+async def test_await_response_with_timeout():
+    b = busing("127.0.0.1", response_timeout=0.01)
+    reader = asyncio.StreamReader()
+
+    with (
+        patch.object(asyncio, "open_connection", return_value=[reader, MockWriter()]),
+        # Will raise IOError due to timeout
+        pytest.raises(IOError),
+    ):
+        await b.await_response()
+
+
+@pytest.mark.asyncio
+async def test_await_response_with_empty_response_reconnect():
+    b = busing("127.0.0.1", response_timeout=0.01)
+    reader = asyncio.StreamReader()
+    count = 0
+
+    async def read_side_effect(n=int):
+        nonlocal count
+        count += 1
+        if count == 1:
+            reader.feed_eof()
+            return
+        else:
+            return bytes.fromhex("fefe 01 fefe 0001 18 18")
+
+    with (
+        patch.object(asyncio, "open_connection", return_value=[reader, MockWriter()]),
+        patch.object(reader, "read", side_effect=read_side_effect),
+    ):
+        res = await b.await_response()
+
+        assert isinstance(res, dict)
+        assert "command" in res
+        assert res["command"] == 1
+
+
+@pytest.mark.asyncio
 async def test_send_message():
     b = busing("127.0.0.1")
     writer = Mock()
@@ -110,6 +186,44 @@ async def test_send_message():
 
 
 @pytest.mark.asyncio
+async def test_send_message_with_callback():
+    b = busing("127.0.0.1", response_timeout=0.01)
+    reader = asyncio.StreamReader()
+
+    call_count = 0
+    created_tasks = []
+
+    def callback(msg):
+        nonlocal call_count
+        call_count += 1
+        assert isinstance(msg, dict)
+        assert "command" in msg
+        assert msg["command"] == 1
+
+    def capture_create_task(coro, *args, **kwargs):
+        task = asyncio.get_running_loop().create_task(coro, *args, **kwargs)
+        created_tasks.append(task)
+        return task
+
+    with (
+        patch.object(asyncio, "open_connection", return_value=[reader, MockWriter()]),
+        patch.object(asyncio, "create_task", side_effect=capture_create_task),
+        patch.object(
+            reader, "read", return_value=bytes.fromhex("fefe 01 fefe 0012 18 18")
+        ),
+    ):
+        # Send command message with our callback function
+        await b.send_message(
+            command=10, destination=0x12, data1=0, data2=0, cb=callback
+        )
+        # Gather all created tasks to ensure they complete before asserting
+        if created_tasks:
+            await asyncio.wait_for(asyncio.gather(*created_tasks), timeout=1)
+
+        assert call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_listener_reads_and_buffers_messages():
     """Test that listener reads messages and buffers them."""
     b = busing("127.0.0.1")
@@ -119,14 +233,14 @@ async def test_listener_reads_and_buffers_messages():
     ]
     callback = Mock()
 
-    async def await_messages_side_effect(timeout=None):
+    async def perform_read_side_effect():
         # Simulate reading messages once, then cancel
         if len(messages) > 0:
             return [messages.pop(0)]
         raise asyncio.CancelledError()
 
     with (
-        patch.object(b, "_await_messages", side_effect=await_messages_side_effect),
+        patch.object(b, "_perform_read", side_effect=perform_read_side_effect),
         patch.object(b, "_flush_buffer", new_callable=AsyncMock) as mock_flush,
     ):
         await b.listener(callback)
@@ -154,6 +268,26 @@ async def test_listener_handles_ioerror():
         patch.object(b, "_flush_buffer", new_callable=AsyncMock),
     ):
         await b.listener(callback)
+
+        # Should continue after IOError without raising
+        assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_listener_passes_ioerror():
+    """Test that listener passes IOError without auto_reconnecting."""
+    b = busing("127.0.0.1", reconnect_delay=0.0001)
+    callback = Mock()
+    call_count = 0
+
+    async def await_messages_side_effect(timeout=None):
+        raise IOError("Connection lost")
+
+    with (
+        patch.object(b, "_await_messages", side_effect=await_messages_side_effect),
+        pytest.raises(IOError),
+    ):
+        await b.listener(callback, auto_reconnect=False)
 
         # Should continue after IOError without raising
         assert call_count == 2
