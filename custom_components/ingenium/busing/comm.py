@@ -11,9 +11,9 @@ class IngeniumBUSingCommunication:
     """Class to Communicate over BUSing protocol with Ingenium server."""
 
     DEFAULT_PORT = 12347
-    RESPONSE_TIMEOUT = 15
     RECONNECT_RETRIES = 5
-    RECONNECT_DELAY = 5
+    RECONNECT_DELAY = 5.0
+    RESPONSE_TIMEOUT = 15.0
     BUFFER_DELAY = 0.2
     DEFAULT_POLLING_INTERVAL = 180
 
@@ -22,30 +22,42 @@ class IngeniumBUSingCommunication:
         host: str,
         port: int = DEFAULT_PORT,
         connect_retries: int = RECONNECT_RETRIES,
-        reconnect_delay: int = RECONNECT_DELAY,
-        response_timeout: int = RESPONSE_TIMEOUT,
+        reconnect_delay: float = RECONNECT_DELAY,
+        response_timeout: float = RESPONSE_TIMEOUT,
     ):
         self._host = host
         self._port = port
         self._reader = None
         self._writer = None
-        self._retries = connect_retries
-        self._reconnect_delay = reconnect_delay
-        self._response_timeout = response_timeout
+        self.set_retries(connect_retries)
+        self.set_reconnect_delay(reconnect_delay)
+        self.set_response_timeout(response_timeout)
         self._msg_buffer = []
         self._future_messages = False
         # asyncio Lock/Task used to allow multiple coroutines to await the same Stream reader
         self._reader_lock = asyncio.Lock()
         self._reader_task: asyncio.Task | None = None
 
-    def set_response_timeout(self, timeout: int | None) -> None:
-        """Change response timeout value for the next awaited response"""
+    def set_retries(self, retries: int) -> None:
+        if type(retries) is not int or retries < 0:
+            raise ValueError("Retries value must be a non-negative integer")
+        self._retries = retries
+
+    def set_reconnect_delay(self, delay: float) -> None:
+        if type(delay) is not float or delay < 0:
+            raise ValueError("Reconnect delay value must be a positive float")
+        self._reconnect_delay = delay
+
+    def set_response_timeout(self, timeout: float) -> None:
+        if type(timeout) is not float or timeout <= 0:
+            raise ValueError("Timeout must be a positive float")
         self._response_timeout = timeout
 
     async def listener(
         self,
         callback: Callable,
         buffer_flush_delay: None | float = BUFFER_DELAY,
+        auto_reconnect: bool = True,
     ):
         """TCP client task that connects to device and logs incoming data in hex."""
         flush_task = None
@@ -65,10 +77,18 @@ class IngeniumBUSingCommunication:
                         )
 
             except IOError as e:
-                continue
+                if auto_reconnect:
+                    _LOGGER.warning(
+                        "IOError in listener: %s, reconnecting in %d seconds",
+                        e,
+                        self._reconnect_delay,
+                    )
+                    await asyncio.sleep(self._reconnect_delay)
+                else:
+                    raise
 
             except asyncio.CancelledError:
-                _LOGGER.info("Listener cancelled, closed connection")
+                _LOGGER.info("Listener cancelled, closing connection")
                 break
 
     async def send_message(
@@ -113,9 +133,7 @@ class IngeniumBUSingCommunication:
             _LOGGER.debug("Waiting for response message (timeout=%i)...", timeout)
 
             try:
-                d = await self._await_messages(timeout=timeout)
-
-                for msg in d:
+                for msg in await self._await_messages(timeout=timeout):
                     if msg["command"] == 1 or msg["command"] == 2:
                         # Apply message origin filter (optional)
                         if origin == None or (msg["origin"] == origin & 0xFF):
@@ -123,7 +141,7 @@ class IngeniumBUSingCommunication:
                             return msg
             except IOError as e:
                 _LOGGER.warning("IOError occurred: %s", e)
-                continue
+
             finally:
                 if self._response_timeout is not None:
                     # Check the time already spent waiting, break if timed out
@@ -133,14 +151,12 @@ class IngeniumBUSingCommunication:
                     if timeout <= 0:
                         raise asyncio.TimeoutError
 
-    async def poll_bus_devices(self):
-        await self.send_message(destination=0xFFFF, command=10, data1=0, data2=0)
-
     async def _open_connection(self):
         if (
             self._reader is not None
             and not self._reader.at_eof()
             and self._writer is not None
+            and not self._writer.is_closing()
         ):
             return
 
@@ -178,15 +194,15 @@ class IngeniumBUSingCommunication:
         # Reset Stream Reader and -Writer
         self._reader = self._writer = None
 
-    async def _await_messages(self, timeout: int | None = None):
+    async def _await_messages(self, timeout: float | None = None) -> List[dict]:
         """Blocking read messages. Multiple calls await the same StreamReader co-routine."""
         # If there's an in-progress read, wait on it
         if self._reader_task is None or self._reader_task.done():
             # spawn the actual read operation
             self._reader_task = asyncio.create_task(self._perform_read())
 
-        if timeout and timeout > 0:
-            res = await asyncio.wait_for(self._reader_task, timeout)
+        if timeout is not None and timeout > 0:
+            res = await asyncio.wait_for(self._reader_task, timeout=timeout)
         else:
             res = await self._reader_task
         return res
@@ -200,8 +216,13 @@ class IngeniumBUSingCommunication:
             data = await self._reader.read(MAX_READ)
 
             if data == False or data is None or len(data) == 0:
+                _LOGGER.warning(
+                    "No data received, closing connection, StreamReader=%s",
+                    self._reader,
+                )
+                e = self._reader.exception()
                 self._reader = None
-                raise IOError("Lost connection")
+                raise IOError("No data received") from e
 
             decoded_messages = IngeniumBUSingDatagram.decode(data)
             [_LOGGER.debug(f"Decoded message: {msg}") for msg in decoded_messages]
