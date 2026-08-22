@@ -135,6 +135,7 @@ async def test_with_async_init(hass, dev):
         result = await dev.async_initialize_device()
 
         assert result is None
+        assert dev.comm == dev._comm
         assert dev._background_listener_timeout.total_seconds() == 300
         assert mock_create_task.assert_called_once
         assert mock_create_task.call_args[0][1] == f"{DOMAIN}_{TASK_BUSING}"
