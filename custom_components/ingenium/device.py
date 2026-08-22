@@ -98,6 +98,10 @@ class Device(DataUpdateCoordinator):
     def listener(self) -> None | Task:
         return self._listener
 
+    @property
+    def comm(self) -> IngeniumBUSingCommunication:
+        return self._comm
+
     async def async_initialize_device(self) -> bool:
         """Set up the devices for the ingenium touch device or webserver."""
 
