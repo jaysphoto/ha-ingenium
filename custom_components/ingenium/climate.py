@@ -141,6 +141,12 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
 
         return True
 
+    def set_fan_mode(self, fan_mode: str) -> None:
+        self.hass.async_create_task(self.async_set_fan_mode(fan_mode))
+
+    def set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        self.hass.async_create_task(self.async_set_hvac_mode(hvac_mode))
+
     async def async_turn_on(self) -> None:
         """Turn the AC on."""
         await self._send_bus_message(command=4, data1=(self._unit_id * 4), data2=3)
@@ -149,49 +155,92 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
         """Turn the AC off."""
         await self._send_bus_message(command=4, data1=(self._unit_id * 4), data2=2)
 
-    def set_havc_mode(self, hvac_mode: HVACMode) -> None:
-        self.hass.async_create_task(self.async_set_hvac_mode(hvac_mode))
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Set new target fan mode."""
+        if fan_mode == FAN_OFF:
+            fan_mode_data2 = 0
+        elif fan_mode == FAN_LOW:
+            fan_mode_data2 = 16
+        elif fan_mode == FAN_MEDIUM:
+            fan_mode_data2 = 32
+        elif fan_mode == FAN_HIGH:
+            fan_mode_data2 = 48
+        elif fan_mode == FAN_AUTO:
+            fan_mode_data2 = 64
+        else:
+            return
+
+        # Set HVAC MODE bits based on current state, or default to COOL if not set
+        if self._attr_hvac_mode == HVACMode.COOL:
+            hvac_mode_data2 = 0
+        elif self._attr_hvac_mode == HVACMode.DRY:
+            hvac_mode_data2 = 1
+        elif self._attr_hvac_mode == HVACMode.FAN_ONLY:
+            hvac_mode_data2 = 2
+        elif self._attr_hvac_mode == HVACMode.AUTO:
+            hvac_mode_data2 = 3
+        elif self._attr_hvac_mode == HVACMode.HEAT:
+            hvac_mode_data2 = 4
+        else:
+            hvac_mode_data2 = 0
+
+        await self._send_bus_message(
+            command=4,
+            data1=(self._unit_id * 4) + 1,
+            data2=hvac_mode_data2 | fan_mode_data2,
+        )
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Set new target fan mode."""
+        await self._write_mode_register(
+            hvac_mode=self._attr_hvac_mode, fan_mode=fan_mode
+        )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         if hvac_mode == HVACMode.OFF:
             await self.async_turn_off()
         else:
-            # Set FAN MODE bits based on current state, or default to FAN_OFF if not set
-            if self._attr_fan_mode == FAN_LOW:
-                fan_mode_data2 = 16
-            elif self._attr_fan_mode == FAN_MEDIUM:
-                fan_mode_data2 = 32
-            elif self._attr_fan_mode == FAN_HIGH:
-                fan_mode_data2 = 48
-            elif self._attr_fan_mode == FAN_AUTO:
-                fan_mode_data2 = 64
-            else:
-                fan_mode_data2 = 0
-
-            # Set HVAC MODE bits based on requested mode
-            if hvac_mode == HVACMode.COOL:
-                hvac_mode_data2 = 0
-            elif hvac_mode == HVACMode.DRY:
-                hvac_mode_data2 = 1
-            elif hvac_mode == HVACMode.FAN_ONLY:
-                hvac_mode_data2 = 2
-            elif hvac_mode == HVACMode.AUTO:
-                hvac_mode_data2 = 3
-            elif hvac_mode == HVACMode.HEAT:
-                hvac_mode_data2 = 4
-            else:
-                hvac_mode_data2 = 0
-
-            await self._send_bus_message(
-                command=4,
-                data1=(self._unit_id * 4) + 1,
-                data2=hvac_mode_data2 | fan_mode_data2,
+            await self._write_mode_register(
+                hvac_mode=hvac_mode, fan_mode=self._attr_fan_mode
             )
 
             # Turn on the AC unit if it is currently OFF
             if self._attr_hvac_action == HVACAction.OFF:
                 await self.async_turn_on()
+
+    async def _write_mode_register(self, hvac_mode: HVACMode, fan_mode: str) -> None:
+        # Set FAN MODE bits based on current state, or default to FAN_OFF if not set
+        if fan_mode == FAN_LOW:
+            fan_mode_data2 = 16
+        elif fan_mode == FAN_MEDIUM:
+            fan_mode_data2 = 32
+        elif fan_mode == FAN_HIGH:
+            fan_mode_data2 = 48
+        elif fan_mode == FAN_AUTO:
+            fan_mode_data2 = 64
+        else:
+            fan_mode_data2 = 0
+
+        # Set HVAC MODE bits based on requested mode
+        if hvac_mode == HVACMode.COOL:
+            hvac_mode_data2 = 0
+        elif hvac_mode == HVACMode.DRY:
+            hvac_mode_data2 = 1
+        elif hvac_mode == HVACMode.FAN_ONLY:
+            hvac_mode_data2 = 2
+        elif hvac_mode == HVACMode.AUTO:
+            hvac_mode_data2 = 3
+        elif hvac_mode == HVACMode.HEAT:
+            hvac_mode_data2 = 4
+        else:
+            hvac_mode_data2 = 0
+
+        await self._send_bus_message(
+            command=4,
+            data1=(self._unit_id * 4) + 1,
+            data2=hvac_mode_data2 | fan_mode_data2,
+        )
 
     # The device will report HVAC/Fan Mode, temperature setting even when OFF, therefor
     # we override some properties to None to prevent the device showing up in the UI

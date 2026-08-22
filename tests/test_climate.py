@@ -698,3 +698,48 @@ async def test_ingenium_climate_mode_controls(hass, device_1, features, coordina
     assert entity._attr_fan_mode == FAN_AUTO
     assert entity._attr_hvac_mode == HVACMode.COOL
     entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_fan_mode_controls(
+    hass, device_1, features, coordinator
+):
+    """Test fan mode control send payloads and response handling for ACK/NACK messages."""
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    entity = ingenium_climate.IngeniumClimate(entry, device_1, features)
+    entity.async_write_ha_state = MagicMock()
+    entity._attr_hvac_mode = HVACMode.COOL
+
+    await entity.async_set_fan_mode(FAN_LOW)
+    coordinator.comm.send_message.assert_awaited_once_with(
+        destination=5,
+        command=4,
+        data1=1,
+        data2=0x10,
+        cb=entity._process_response_message,
+    )
+
+    # Simulate receiving NACK response (no Entity changes expected)
+    entity._process_response_message({"command": 2, "data1": 1, "data2": 0x10})
+    assert entity._attr_fan_mode is None
+    assert entity._attr_hvac_mode == HVACMode.COOL
+    entity.async_write_ha_state.assert_not_called()
+
+    coordinator.comm.send_message.reset_mock()
+    entity.async_write_ha_state.reset_mock()
+
+    # Simulate receiving ACK response (Entity should update state to FAN_LOW)
+    entity._process_response_message({"command": 1, "data1": 1, "data2": 0x10})
+    assert entity._attr_fan_mode == FAN_LOW
+    assert entity._attr_hvac_mode == HVACMode.COOL
+    entity.async_write_ha_state.assert_called_once()
