@@ -19,6 +19,27 @@ from .const import CONF_MAC
 from .device import Device, BusDeviceType
 from .entity import BaseEntity
 
+SUPPORTED_DEVICES = {
+    BusDeviceType.AC_GATEWAY_LG: {
+        "features": ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.FAN_MODE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF,
+        "hvac_modes": [
+            HVACMode.OFF,
+            HVACMode.COOL,
+            HVACMode.AUTO,
+            HVACMode.DRY,
+            HVACMode.HEAT,
+        ],
+        "fan_modes": [FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH],
+        "model": "BUSing-LGAC-I",
+        "min_temp": 16,
+        "max_temp": 31,
+        "precision": 0.5,
+    },
+}
+
 
 async def async_setup_entry(
     _hass: HomeAssistant,
@@ -26,23 +47,20 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Climate Device sensors."""
-
     # Add devices
     async_add_entities(
         [
             IngeniumClimate(
-                config_entry,
-                dev,
-                ClimateEntityFeature(
-                    ClimateEntityFeature.TARGET_TEMPERATURE
-                    | ClimateEntityFeature.FAN_MODE
-                    | ClimateEntityFeature.TURN_ON
-                    | ClimateEntityFeature.TURN_OFF
-                ),
-                "BUSing-LGAC-I",
+                **{
+                    **{
+                        "config_entry": config_entry,
+                        "dev": dev,
+                        **SUPPORTED_DEVICES[dev.device_type],
+                    },
+                }
             )
             for dev in config_entry.runtime_configuration["devices"]
-            if dev.device_type in [BusDeviceType.AC_GATEWAY_LG]
+            if dev.device_type in SUPPORTED_DEVICES
         ]
     )
 
@@ -53,33 +71,36 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
         config_entry: dict,
         dev: Device,
         features: ClimateEntityFeature,
-        model: str = None,
+        model: str,
+        hvac_modes: list[HVACMode],
+        fan_modes: list[str] = [],
+        min_temp: float | None = None,
+        max_temp: float | None = None,
+        precision: float | None = None,
     ):
         super().__init__(config_entry, dev, model)
 
         self._unit_id = dev.output
-        self._attr_has_entity_name = True
         self._attr_name = dev.label
-        self._attr_unique_id = f"{config_entry.data.get(CONF_MAC)}_busing_{self._address}_unit_{self._unit_id}"
+        self._attr_has_entity_name = True
+        self._attr_unique_id = (
+            f"{config_entry.data[CONF_MAC]}_busing_{self._address}_unit_{self._unit_id}"
+        )
         self._attr_hvac_mode = None
-        self._attr_hvac_modes = [
-            HVACMode.OFF,
-            HVACMode.COOL,
-            HVACMode.AUTO,
-            HVACMode.DRY,
-            HVACMode.HEAT,
-        ]
+        self._attr_hvac_modes = hvac_modes
+        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+
         # Device features are set based on the device type, but we can override them here if needed
         self._attr_supported_features = features
 
         if features | ClimateEntityFeature.FAN_MODE:
             self._attr_fan_mode = None
-            self._attr_fan_modes = [FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH]
+            self._attr_fan_modes = fan_modes
         if features | ClimateEntityFeature.TARGET_TEMPERATURE:
-            self._attr_current_temperature = None
             self._attr_target_temperature = None
-            self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-            self._attr_precision = 0.5
+            self._attr_precision = precision
+            self.min_temp = min_temp
+            self.max_temp = max_temp
 
     def _bus_message_filter(self, msg) -> bool:
         # Note: This type of device handles up to 63 units with 4 registers each:
@@ -157,41 +178,6 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set new target fan mode."""
-        if fan_mode == FAN_OFF:
-            fan_mode_data2 = 0
-        elif fan_mode == FAN_LOW:
-            fan_mode_data2 = 16
-        elif fan_mode == FAN_MEDIUM:
-            fan_mode_data2 = 32
-        elif fan_mode == FAN_HIGH:
-            fan_mode_data2 = 48
-        elif fan_mode == FAN_AUTO:
-            fan_mode_data2 = 64
-        else:
-            return
-
-        # Set HVAC MODE bits based on current state, or default to COOL if not set
-        if self._attr_hvac_mode == HVACMode.COOL:
-            hvac_mode_data2 = 0
-        elif self._attr_hvac_mode == HVACMode.DRY:
-            hvac_mode_data2 = 1
-        elif self._attr_hvac_mode == HVACMode.FAN_ONLY:
-            hvac_mode_data2 = 2
-        elif self._attr_hvac_mode == HVACMode.AUTO:
-            hvac_mode_data2 = 3
-        elif self._attr_hvac_mode == HVACMode.HEAT:
-            hvac_mode_data2 = 4
-        else:
-            hvac_mode_data2 = 0
-
-        await self._send_bus_message(
-            command=4,
-            data1=(self._unit_id * 4) + 1,
-            data2=hvac_mode_data2 | fan_mode_data2,
-        )
-
-    async def async_set_fan_mode(self, fan_mode: str) -> None:
-        """Set new target fan mode."""
         await self._write_mode_register(
             hvac_mode=self._attr_hvac_mode, fan_mode=fan_mode
         )
@@ -211,7 +197,9 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
 
     async def _write_mode_register(self, hvac_mode: HVACMode, fan_mode: str) -> None:
         # Set FAN MODE bits based on current state, or default to FAN_OFF if not set
-        if fan_mode == FAN_LOW:
+        if fan_mode == FAN_OFF:
+            fan_mode_data2 = 0
+        elif fan_mode == FAN_LOW:
             fan_mode_data2 = 16
         elif fan_mode == FAN_MEDIUM:
             fan_mode_data2 = 32
@@ -220,7 +208,7 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
         elif fan_mode == FAN_AUTO:
             fan_mode_data2 = 64
         else:
-            fan_mode_data2 = 0
+            raise ValueError(f"Invalid fan mode: {fan_mode}")
 
         # Set HVAC MODE bits based on requested mode
         if hvac_mode == HVACMode.COOL:
@@ -234,7 +222,7 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
         elif hvac_mode == HVACMode.HEAT:
             hvac_mode_data2 = 4
         else:
-            hvac_mode_data2 = 0
+            raise ValueError(f"Invalid hvac mode: {hvac_mode}")
 
         await self._send_bus_message(
             command=4,
