@@ -1,6 +1,6 @@
 import pytest
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
@@ -14,7 +14,7 @@ from homeassistant.components.climate.const import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ingenium import climate as ingenium_climate
+from custom_components.ingenium import climate as ingenium_climate, entity
 from custom_components.ingenium.const import (
     ATTR_MANUFACTURER,
     DOMAIN,
@@ -49,22 +49,34 @@ def device_2() -> BUSDevice:
 @pytest.fixture
 def features() -> ClimateEntityFeature:
     return ClimateEntityFeature(
-        ClimateEntityFeature.FAN_MODE + ClimateEntityFeature.TARGET_TEMPERATURE
+        ClimateEntityFeature.FAN_MODE
+        | ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
     )
 
 
-async def test_async_setup_entry_adds_climate_entities(hass, device_1, device_2):
+@pytest.fixture
+def coordinator():
+    """Create a coordinator mock with the listener and comm hooks used by entities."""
+    mock = Mock()
+    mock.data = {}
+    mock.async_add_listener = MagicMock(return_value=None)
+    mock.async_remove_listener = MagicMock(return_value=None)
+    mock.comm = Mock()
+    mock.comm.send_message = AsyncMock()
+    return mock
+
+
+async def test_async_setup_entry_adds_climate_entities(
+    hass, device_1, device_2, coordinator
+):
     """Test that async_setup_entry adds climate entities for AC gateway devices."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_MAC: "A123B", CONF_HOST: "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -89,7 +101,7 @@ async def test_async_setup_entry_adds_climate_entities(hass, device_1, device_2)
 
 
 async def test_ingenium_climate_entity_initialization_and_attributes(
-    hass, device_1, features
+    hass, device_1, features, coordinator
 ):
     """Test IngeniumClimate entity initialization and default attributes."""
     entry = MockConfigEntry(
@@ -97,11 +109,6 @@ async def test_ingenium_climate_entity_initialization_and_attributes(
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -127,18 +134,13 @@ async def test_ingenium_climate_entity_initialization_and_attributes(
     assert entity.fan_mode is None
 
 
-async def test_ingenium_climate_device_info(hass, device_1, features):
+async def test_ingenium_climate_device_info(hass, device_1, features, coordinator):
     """Test IngeniumClimate device info."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -156,18 +158,15 @@ async def test_ingenium_climate_device_info(hass, device_1, features):
     assert device_info["via_device"] == (DOMAIN, "A123B")
 
 
-async def test_ingenium_climate_ac_state_on_off_unavailable(hass, device_1, features):
+async def test_ingenium_climate_ac_state_on_off_unavailable(
+    hass, device_1, features, coordinator
+):
     """Test AC state parsing (ON/OFF/UNAVAILABLE) from bus messages."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -218,18 +217,15 @@ async def test_ingenium_climate_ac_state_on_off_unavailable(hass, device_1, feat
     entity.async_write_ha_state.assert_called_once()
 
 
-async def test_ingenium_climate_mode_and_fan_parsing(hass, device_1, features):
+async def test_ingenium_climate_mode_and_fan_parsing(
+    hass, device_1, features, coordinator
+):
     """Test HVAC mode and fan mode parsing from operation mode register."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -322,18 +318,15 @@ async def test_ingenium_climate_mode_and_fan_parsing(hass, device_1, features):
     entity.async_write_ha_state.assert_called_once()
 
 
-async def test_ingenium_climate_target_temperature(hass, device_1, features):
+async def test_ingenium_climate_target_temperature(
+    hass, device_1, features, coordinator
+):
     """Test target temperature parsing from register."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -369,18 +362,15 @@ async def test_ingenium_climate_target_temperature(hass, device_1, features):
     entity.async_write_ha_state.assert_called_once()
 
 
-async def test_ingenium_climate_current_temperature(hass, device_1, features):
+async def test_ingenium_climate_current_temperature(
+    hass, device_1, features, coordinator
+):
     """Test current temperature parsing from environment register."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -431,7 +421,7 @@ async def test_ingenium_climate_current_temperature(hass, device_1, features):
 
 
 async def test_ingenium_climate_ignores_out_of_range_registers(
-    hass, device_1, features
+    hass, device_1, features, coordinator
 ):
     """Test that entity correctly filters messages based on register range for unit_id."""
     entry = MockConfigEntry(
@@ -439,11 +429,6 @@ async def test_ingenium_climate_ignores_out_of_range_registers(
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -483,7 +468,9 @@ async def test_ingenium_climate_ignores_out_of_range_registers(
     entity.async_write_ha_state.assert_not_called()
 
 
-async def test_ingenium_climate_ignores_missing_address(hass, device_1, features):
+async def test_ingenium_climate_ignores_missing_address(
+    hass, device_1, features, coordinator
+):
     """Test that entity gracefully handles missing address in coordinator data."""
     entry = MockConfigEntry(
         domain="ingenium",
@@ -491,10 +478,7 @@ async def test_ingenium_climate_ignores_missing_address(hass, device_1, features
     )
     entry.add_to_hass(hass)
 
-    coordinator = Mock()
     coordinator.data = {6: {"bus_messages": []}}  # Different address
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -509,18 +493,15 @@ async def test_ingenium_climate_ignores_missing_address(hass, device_1, features
     entity.async_write_ha_state.assert_not_called()
 
 
-async def test_ingenium_climate_multiple_messages_in_update(hass, device_1, features):
+async def test_ingenium_climate_multiple_messages_in_update(
+    hass, device_1, features, coordinator
+):
     """Test handling multiple bus messages in a single coordinator update."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -553,18 +534,13 @@ async def test_ingenium_climate_multiple_messages_in_update(hass, device_1, feat
     entity.async_write_ha_state.assert_called_once()
 
 
-async def test_ingenium_climate_off_mode(hass, device_1, features):
+async def test_ingenium_climate_off_mode(hass, device_1, features, coordinator):
     """Test handling multiple bus messages in a single coordinator update."""
     entry = MockConfigEntry(
         domain="ingenium",
         data={"mac": "A123B", "host": "192.168.1.100"},
     )
     entry.add_to_hass(hass)
-
-    coordinator = Mock()
-    coordinator.data = {}
-    coordinator.async_add_listener = MagicMock(return_value=None)
-    coordinator.async_remove_listener = MagicMock(return_value=None)
 
     entry.runtime_configuration = {
         "coordinator": coordinator,
@@ -607,4 +583,118 @@ async def test_ingenium_climate_off_mode(hass, device_1, features):
     assert entity.current_temperature == None  # These are hidden as well
 
     # async_write_ha_state should be called once for the update
+    entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_on_off_controls(hass, device_1, features, coordinator):
+    """Test on/off control send payloads and response handling for ACK/NACK messages."""
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    entity = ingenium_climate.IngeniumClimate(entry, device_1, features)
+    entity.async_write_ha_state = MagicMock()
+    entity._attr_available = False
+    entity._attr_hvac_action = None
+
+    await entity.async_turn_on()
+    coordinator.comm.send_message.assert_awaited_once_with(
+        destination=5,
+        command=4,
+        data1=0,
+        data2=3,
+        cb=entity._process_response_message,
+    )
+
+    # Simulate receiving NACK response (no Entity changes expected)
+    entity._process_response_message({"command": 2, "data1": 0, "data2": 0x03})
+    # Internal state is still stored
+    assert entity._attr_available is False
+    assert entity._attr_hvac_action == None
+    entity.async_write_ha_state.assert_not_called()
+
+    # Simulate receiving ACK response (Entity should update state to available and HVACAction.OFF)
+    entity._process_response_message({"command": 1, "data1": 0, "data2": 0x03})
+    assert entity._attr_available is True
+    assert entity._attr_hvac_action == None
+    entity.async_write_ha_state.assert_called_once()
+
+    # Reset and test async_turn_off
+    coordinator.comm.send_message.reset_mock()
+
+    await entity.async_turn_off()
+    coordinator.comm.send_message.assert_awaited_once_with(
+        destination=5,
+        command=4,
+        data1=0,
+        data2=2,
+        cb=entity._process_response_message,
+    )
+
+    # Simulate receiving ACK message
+    entity._process_response_message({"command": 1, "data1": 0, "data2": 2})
+
+    assert entity._attr_available == True
+    assert entity._attr_hvac_action == HVACAction.OFF
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_mode_controls(hass, device_1, features, coordinator):
+    """Test mode control send payloads and response handling for ACK/NACK messages."""
+    entry = MockConfigEntry(
+        domain="ingenium",
+        data={"mac": "A123B", "host": "192.168.1.100"},
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_configuration = {
+        "coordinator": coordinator,
+        "devices": [],
+    }
+
+    entity = ingenium_climate.IngeniumClimate(entry, device_1, features)
+    entity.async_write_ha_state = MagicMock()
+    entity._attr_fan_mode = FAN_AUTO
+    entity._attr_hvac_action = HVACAction.OFF
+
+    await entity.async_set_hvac_mode(HVACMode.COOL)
+    assert coordinator.comm.send_message.await_count == 2
+    # The first message sets uses existing fan mode to AUTO (0x40) and HVAC mode to COOL (0x0)
+    coordinator.comm.send_message.assert_any_await(
+        destination=5,
+        command=4,
+        data1=1,
+        data2=0x40,
+        cb=entity._process_response_message,
+    )
+    # Second message turns on the AC unit (data2=3)
+    coordinator.comm.send_message.assert_any_await(
+        destination=5,
+        command=4,
+        data1=0,
+        data2=3,
+        cb=entity._process_response_message,
+    )
+
+    # Simulate receiving NACK response
+    entity._process_response_message({"command": 2, "data1": 1, "data2": 0x40})
+    # Internal state is still stored
+    assert entity._attr_fan_mode == FAN_AUTO
+    assert entity._attr_hvac_mode == None
+    entity.async_write_ha_state.assert_not_called()
+
+    coordinator.comm.send_message.reset_mock()
+    entity.async_write_ha_state.reset_mock()
+
+    # Simulate receiving ACK response
+    entity._process_response_message({"command": 1, "data1": 1, "data2": 0x40})
+    assert entity._attr_fan_mode == FAN_AUTO
+    assert entity._attr_hvac_mode == HVACMode.COOL
     entity.async_write_ha_state.assert_called_once()
