@@ -11,6 +11,8 @@ from homeassistant.components.climate.const import (
     FAN_LOW,
     FAN_MEDIUM,
     FAN_HIGH,
+    DEFAULT_MIN_TEMP,
+    DEFAULT_MAX_TEMP,
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -98,6 +100,7 @@ def entity():
         ),
         features=ClimateEntityFeature(ClimateEntityFeature.FAN_MODE),
         hvac_modes=SUPPORTED_DEVICES[BusDeviceType.AC_GATEWAY_LG]["hvac_modes"],
+        fan_modes=[FAN_OFF, FAN_LOW, FAN_MEDIUM, FAN_HIGH, FAN_AUTO],
         model="test_model",
     )
     mock._send_bus_message = AsyncMock()
@@ -167,6 +170,9 @@ async def test_ingenium_climate_entity_init_basic(hass, device_1, coordinator):
     assert entity.unique_id == "A123B_busing_5_unit_0"
     assert entity.name == "Living Room AC"
     assert entity.hvac_mode == None
+    assert entity.min_temp == DEFAULT_MIN_TEMP
+    assert entity.max_temp == DEFAULT_MAX_TEMP
+
     assert set(entity.hvac_modes) == hvac_modes
 
 
@@ -199,6 +205,8 @@ async def test_ingenium_climate_entity_init_with_features(hass, device_1, coordi
         hvac_modes=hvac_modes,
         fan_modes=fan_modes,
         model="test_model",
+        min_temp=15,
+        max_temp=31,
     )
 
     # Check initialization
@@ -207,9 +215,11 @@ async def test_ingenium_climate_entity_init_with_features(hass, device_1, coordi
     assert entity.temperature_unit == "°C"
     assert entity.precision == None
     assert entity.hvac_mode == None
+    assert entity.fan_mode is None
+    assert entity.min_temp == 15
+    assert entity.max_temp == 31
     assert set(entity.hvac_modes) == hvac_modes
     assert set(entity.fan_modes) == fan_modes
-    assert entity.fan_mode is None
 
 
 async def test_ingenium_climate_ac_state_on_off_unavailable(entity):
@@ -563,6 +573,8 @@ async def test_ingenium_climate_modes(entity):
     entity._attr_fan_mode = FAN_AUTO
     entity._attr_hvac_action = None
 
+    assert len(entity.hvac_modes) == 5
+
     # Cycle through all the HVAC modes
     for mode in entity.hvac_modes:
         entity._send_bus_message.reset_mock()
@@ -623,6 +635,10 @@ async def test_ingenium_climate_mode_response(entity):
 
 @pytest.mark.asyncio
 async def test_ingenium_climate_fan_mode_controls(entity):
+    entity._attr_hvac_mode = HVACMode.COOL
+
+    assert len(entity.fan_modes) == 5
+
     # Cycle through all the fan modes
     for mode in entity.fan_modes:
         entity._send_bus_message.reset_mock()

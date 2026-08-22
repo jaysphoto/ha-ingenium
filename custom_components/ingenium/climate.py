@@ -93,14 +93,14 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
         # Device features are set based on the device type, but we can override them here if needed
         self._attr_supported_features = features
 
-        if features | ClimateEntityFeature.FAN_MODE:
+        if ClimateEntityFeature.FAN_MODE in features:
             self._attr_fan_mode = None
             self._attr_fan_modes = fan_modes
-        if features | ClimateEntityFeature.TARGET_TEMPERATURE:
+        if ClimateEntityFeature.TARGET_TEMPERATURE in features:
             self._attr_target_temperature = None
             self._attr_precision = precision
-            self.min_temp = min_temp
-            self.max_temp = max_temp
+            self._attr_min_temp = min_temp
+            self._attr_max_temp = max_temp
 
     def _bus_message_filter(self, msg) -> bool:
         # Note: This type of device handles up to 63 units with 4 registers each:
