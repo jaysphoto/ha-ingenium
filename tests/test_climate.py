@@ -585,6 +585,11 @@ async def test_ingenium_climate_modes(entity):
             data2=expected_data2,
         )
 
+    # Test invalid mode
+    with pytest.raises(ValueError):
+        # OFF is not in the supported modes for this entity
+        await entity.async_set_hvac_mode(HVACMode.OFF)
+
 
 @pytest.mark.asyncio
 async def test_ingenium_climate_mode_response(entity):

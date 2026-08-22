@@ -176,9 +176,7 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
-        if hvac_mode == HVACMode.OFF:
-            await self.async_turn_off()
-        else:
+        if hvac_mode in self._attr_hvac_modes:
             await self._write_mode_register(
                 hvac_mode=hvac_mode, fan_mode=self._attr_fan_mode
             )
@@ -186,6 +184,8 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
             # Turn on the AC unit if it is currently OFF
             if self._attr_hvac_action == HVACAction.OFF:
                 await self.async_turn_on()
+        else:
+            raise ValueError(f"Invalid hvac mode: {hvac_mode}")
 
     async def async_set_temperature(self, **kwargs: dict) -> None:
         """Set new temperature."""
