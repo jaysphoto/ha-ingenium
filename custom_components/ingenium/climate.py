@@ -1,7 +1,7 @@
 """Support for Ingenium AC gateway devices as CLIMATE platform types"""
 
 from homeassistant.core import HomeAssistant
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
@@ -128,30 +128,28 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
                 return False
 
         elif msg["data1"] % 4 == 1:  # modoFuncionamiento
+            # Fan setting (mask upper 3 bits)
             if msg["data2"] < 16:
                 self._attr_fan_mode = FAN_OFF
-                self._attr_hvac_mode = HVACMode.OFF
-            else:
-                # Fan setting (mask upper 3 bits)
-                if msg["data2"] & 0xF0 == 16:
-                    self._attr_fan_mode = FAN_LOW
-                elif msg["data2"] & 0xF0 == 32:
-                    self._attr_fan_mode = FAN_MEDIUM
-                elif msg["data2"] & 0xF0 == 48:
-                    self._attr_fan_mode = FAN_HIGH
-                elif msg["data2"] & 0xF0 == 64:
-                    self._attr_fan_mode = FAN_AUTO
-                # HVAC mode (mask lower 3 bits)
-                if msg["data2"] & 0x0F == 0:
-                    self._attr_hvac_mode = HVACMode.COOL
-                elif msg["data2"] & 0x0F == 1:
-                    self._attr_hvac_mode = HVACMode.DRY
-                elif msg["data2"] & 0x0F == 2:
-                    self._attr_hvac_mode = HVACMode.FAN_ONLY
-                elif msg["data2"] & 0x0F == 3:
-                    self._attr_hvac_mode = HVACMode.AUTO
-                elif msg["data2"] & 0x0F == 4:
-                    self._attr_hvac_mode = HVACMode.HEAT
+            elif msg["data2"] & 0xF0 == 16:
+                self._attr_fan_mode = FAN_LOW
+            elif msg["data2"] & 0xF0 == 32:
+                self._attr_fan_mode = FAN_MEDIUM
+            elif msg["data2"] & 0xF0 == 48:
+                self._attr_fan_mode = FAN_HIGH
+            elif msg["data2"] & 0xF0 == 64:
+                self._attr_fan_mode = FAN_AUTO
+            # HVAC mode (mask lower 3 bits)
+            if msg["data2"] & 0x0F == 0:
+                self._attr_hvac_mode = HVACMode.COOL
+            elif msg["data2"] & 0x0F == 1:
+                self._attr_hvac_mode = HVACMode.DRY
+            elif msg["data2"] & 0x0F == 2:
+                self._attr_hvac_mode = HVACMode.FAN_ONLY
+            elif msg["data2"] & 0x0F == 3:
+                self._attr_hvac_mode = HVACMode.AUTO
+            elif msg["data2"] & 0x0F == 4:
+                self._attr_hvac_mode = HVACMode.HEAT
         elif msg["data1"] % 4 == 2:  # consigna
             self._attr_target_temperature = msg["data2"] + 15
         elif msg["data1"] % 4 == 3:  # ambiente
@@ -161,12 +159,6 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
             self._attr_current_temperature = (164 - msg["data2"]) / 2
 
         return True
-
-    def set_fan_mode(self, fan_mode: str) -> None:
-        self.hass.async_create_task(self.async_set_fan_mode(fan_mode))
-
-    def set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        self.hass.async_create_task(self.async_set_hvac_mode(hvac_mode))
 
     async def async_turn_on(self) -> None:
         """Turn the AC on."""
@@ -194,6 +186,14 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
             # Turn on the AC unit if it is currently OFF
             if self._attr_hvac_action == HVACAction.OFF:
                 await self.async_turn_on()
+
+    async def async_set_temperature(self, **kwargs: dict) -> None:
+        """Set new temperature."""
+        temperature = kwargs[ATTR_TEMPERATURE]
+
+        await self._send_bus_message(
+            command=4, data1=(self._unit_id * 4) + 2, data2=int(temperature - 15)
+        )
 
     async def _write_mode_register(self, hvac_mode: HVACMode, fan_mode: str) -> None:
         # Set FAN MODE bits based on current state, or default to FAN_OFF if not set

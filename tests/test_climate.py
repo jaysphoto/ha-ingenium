@@ -269,7 +269,7 @@ async def test_ingenium_climate_mode_and_fan_parsing(entity):
     }
     entity._handle_coordinator_update()
     assert entity._attr_fan_mode == FAN_OFF
-    assert entity._attr_hvac_mode == HVACMode.OFF
+    assert entity._attr_hvac_mode == HVACMode.COOL
     entity.async_write_ha_state.assert_called_once()
 
     # Test: Fan LOW + HVAC COOL (data2 = 0x10 | 0x00)
@@ -644,5 +644,36 @@ async def test_ingenium_climate_fan_mode_controls(entity):
     # Simulate receiving ACK response (Entity should update state to FAN_LOW)
     entity._process_response_message({"command": 1, "data1": 1, "data2": 0x10})
     assert entity._attr_fan_mode == FAN_LOW
+    assert entity._attr_hvac_mode == HVACMode.COOL
+    entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_temperature_controls(entity):
+    """Test fan mode control send payloads and response handling for ACK/NACK messages."""
+    entity.async_write_ha_state = MagicMock()
+    entity._attr_hvac_mode = HVACMode.COOL
+
+    await entity.async_set_temperature(temperature=25)
+    entity.coordinator.comm.send_message.assert_awaited_once_with(
+        destination=5,
+        command=4,
+        data1=2,
+        data2=10,
+        cb=entity._process_response_message,
+    )
+
+    # Simulate receiving NACK response (no Entity changes expected)
+    entity._process_response_message({"command": 2, "data1": 2, "data2": 10})
+    assert entity._attr_target_temperature is None
+    assert entity._attr_hvac_mode == HVACMode.COOL
+    entity.async_write_ha_state.assert_not_called()
+
+    entity.coordinator.comm.send_message.reset_mock()
+    entity.async_write_ha_state.reset_mock()
+
+    # Simulate receiving ACK response (Entity should update target temperature)
+    entity._process_response_message({"command": 1, "data1": 2, "data2": 10})
+    assert entity._attr_target_temperature is 25
     assert entity._attr_hvac_mode == HVACMode.COOL
     entity.async_write_ha_state.assert_called_once()
