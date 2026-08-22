@@ -157,7 +157,7 @@ async def test_ingenium_climate_entity_initialization_and_attributes(
         HVACMode.COOL,
         HVACMode.HEAT,
         HVACMode.DRY,
-        HVACMode.OFF,
+        HVACMode.FAN_ONLY,
     }
     fan_modes = {FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH}
 
@@ -575,7 +575,36 @@ async def test_ingenium_climate_on_off_controls(entity):
 
 
 @pytest.mark.asyncio
-async def test_ingenium_climate_mode_controls(entity):
+async def test_ingenium_climate_modes(entity):
+    entity._attr_fan_mode = FAN_AUTO
+    entity._attr_hvac_action = None
+
+    # Cycle through all the HVAC modes
+    for mode in entity.hvac_modes:
+        entity.coordinator.comm.send_message.reset_mock()
+
+        await entity.async_set_hvac_mode(mode)
+
+        # The first message sets uses existing fan mode and the new HVAC mode
+        expected_data2 = {
+            HVACMode.COOL: 0x40,
+            HVACMode.DRY: 0x41,
+            HVACMode.FAN_ONLY: 0x42,
+            HVACMode.AUTO: 0x43,
+            HVACMode.HEAT: 0x44,
+        }[mode]
+
+        entity.coordinator.comm.send_message.assert_awaited_once_with(
+            destination=5,
+            command=4,
+            data1=1,
+            data2=expected_data2,
+            cb=entity._process_response_message,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_mode_response(entity):
     """Test mode control send payloads and response handling for ACK/NACK messages."""
     entity.async_write_ha_state = MagicMock()
     entity._attr_fan_mode = FAN_AUTO
@@ -619,6 +648,32 @@ async def test_ingenium_climate_mode_controls(entity):
 
 @pytest.mark.asyncio
 async def test_ingenium_climate_fan_mode_controls(entity):
+    # Cycle through all the fan modes
+    for mode in entity.fan_modes:
+        entity.coordinator.comm.send_message.reset_mock()
+
+        await entity.async_set_fan_mode(mode)
+
+        # The first message sets uses existing fan mode and the new HVAC mode
+        expected_data2 = {
+            FAN_OFF: 0x0,
+            FAN_LOW: 0x10,
+            FAN_MEDIUM: 0x20,
+            FAN_HIGH: 0x30,
+            FAN_AUTO: 0x40,
+        }[mode]
+
+        entity.coordinator.comm.send_message.assert_awaited_once_with(
+            destination=5,
+            command=4,
+            data1=1,
+            data2=expected_data2,
+            cb=entity._process_response_message,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_fan_mode_response(entity):
     """Test fan mode control send payloads and response handling for ACK/NACK messages."""
     entity.async_write_ha_state = MagicMock()
     entity._attr_hvac_mode = HVACMode.COOL

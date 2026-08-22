@@ -26,11 +26,11 @@ SUPPORTED_DEVICES = {
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF,
         "hvac_modes": [
-            HVACMode.OFF,
             HVACMode.COOL,
             HVACMode.AUTO,
             HVACMode.DRY,
             HVACMode.HEAT,
+            HVACMode.FAN_ONLY,
         ],
         "fan_modes": [FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH],
         "model": "BUSing-LGAC-I",
