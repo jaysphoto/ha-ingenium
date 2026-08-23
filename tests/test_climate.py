@@ -28,11 +28,13 @@ from custom_components.ingenium.const import (
 )
 from custom_components.ingenium.device import BusDeviceType, BUSDevice
 
+DEVICE_ADDRESS = 5
+
 
 @pytest.fixture
 def device_1() -> BUSDevice:
     return BUSDevice(
-        address=5,
+        address=DEVICE_ADDRESS,
         label="Living Room AC",
         device_type=BusDeviceType.AC_GATEWAY_LG,
         output=0,
@@ -43,7 +45,7 @@ def device_1() -> BUSDevice:
 @pytest.fixture
 def device_2() -> BUSDevice:
     return BUSDevice(
-        address=5,
+        address=DEVICE_ADDRESS,
         label="Bedroom AC",
         device_type=BusDeviceType.AC_GATEWAY_LG,
         output=1,
@@ -92,7 +94,7 @@ def entity():
     mock = IngeniumClimate(
         config_entry=entry,
         dev=BUSDevice(
-            address=5,
+            address=DEVICE_ADDRESS,
             label="Living Room AC",
             device_type=BusDeviceType.AC_GATEWAY_LG,
             output=0,
@@ -131,7 +133,10 @@ async def test_async_setup_entry_adds_climate_entities(
 
     # Only AC gateway devices should be added, not actuators
     assert len(added_entities) == 2
-    assert {entity._address for entity in added_entities} == {5, 5}
+    assert {entity._address for entity in added_entities} == {
+        DEVICE_ADDRESS,
+        DEVICE_ADDRESS,
+    }
     assert {entity.unique_id for entity in added_entities} == {
         "A123B_busing_5_unit_0",
         "A123B_busing_5_unit_1",
@@ -228,7 +233,7 @@ async def test_ingenium_climate_ac_state_on_off_unavailable(entity):
 
     # AC ON (data2 & 3 == 3)
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x03},  # AC ON
             ]
@@ -242,7 +247,7 @@ async def test_ingenium_climate_ac_state_on_off_unavailable(entity):
     # AC OFF (data2 & 3 == 2)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x02},  # AC OFF
             ]
@@ -256,7 +261,7 @@ async def test_ingenium_climate_ac_state_on_off_unavailable(entity):
     # AC UNAVAILABLE (data2 & 3 == 0)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x00},  # AC UNAVAILABLE
             ]
@@ -270,7 +275,7 @@ async def test_ingenium_climate_ac_state_on_off_unavailable(entity):
 async def test_ingenium_climate_mode_and_fan_parsing(entity):
     # Test: Fan OFF + HVAC OFF (data2 < 16)
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 1, "data2": 0x00},
             ]
@@ -284,7 +289,7 @@ async def test_ingenium_climate_mode_and_fan_parsing(entity):
     # Test: Fan LOW + HVAC COOL (data2 = 0x10 | 0x00)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 1, "data2": 0x10},  # FAN_LOW + COOL
             ]
@@ -298,7 +303,7 @@ async def test_ingenium_climate_mode_and_fan_parsing(entity):
     # Test: Fan MEDIUM + HVAC DRY (data2 = 0x20 | 0x01)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 1, "data2": 0x21},  # FAN_MEDIUM + DRY
             ]
@@ -312,7 +317,7 @@ async def test_ingenium_climate_mode_and_fan_parsing(entity):
     # Test: Fan HIGH + HVAC FAN_ONLY (data2 = 0x30 | 0x02)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 1, "data2": 0x32},  # FAN_HIGH + FAN_ONLY
             ]
@@ -326,7 +331,7 @@ async def test_ingenium_climate_mode_and_fan_parsing(entity):
     # Test: Fan AUTO + HVAC AUTO (data2 = 0x40 | 0x03)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 1, "data2": 0x43},  # FAN_AUTO + AUTO
             ]
@@ -340,7 +345,7 @@ async def test_ingenium_climate_mode_and_fan_parsing(entity):
     # Test: HVAC HEAT (data2 = 0x10 | 0x04)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 1, "data2": 0x14},  # FAN_LOW + HEAT
             ]
@@ -355,7 +360,7 @@ async def test_ingenium_climate_target_temperature(entity):
     """Test target temperature parsing from register."""
     # Target temp = data2 + 15, e.g., data2=10 -> 25°C
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 2, "data2": 10},
             ]
@@ -368,7 +373,7 @@ async def test_ingenium_climate_target_temperature(entity):
     # Test another value: data2=5 -> 20°C
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 2, "data2": 5},
             ]
@@ -383,7 +388,7 @@ async def test_ingenium_climate_current_temperature(entity):
     """Test current temperature parsing from environment register."""
     # Current temp = (164 - data2) / 2, e.g., data2=114 -> 25°C
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 3, "data2": 114},
             ]
@@ -396,7 +401,7 @@ async def test_ingenium_climate_current_temperature(entity):
     # Test another value: data2=144 -> 10°C
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 3, "data2": 144},
             ]
@@ -409,7 +414,7 @@ async def test_ingenium_climate_current_temperature(entity):
     # Test temperature > 50°C sets to 0 (sensor error)
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 # (164 - 63) / 2 = 50.5
                 {"command": 4, "data1": 3, "data2": 63},
@@ -424,7 +429,7 @@ async def test_ingenium_climate_current_temperature(entity):
 async def test_ingenium_climate_ignores_out_of_range_registers(entity):
     # Messages in range [0, 4) should be processed
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x03},  # In range
                 {"command": 4, "data1": 1, "data2": 0x10},  # In range
@@ -439,7 +444,7 @@ async def test_ingenium_climate_ignores_out_of_range_registers(entity):
     # Reset and test messages outside range [0, 4) are NOT processed
     entity.async_write_ha_state.reset_mock()
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 4, "data2": 0x03},  # Outside range
                 {"command": 4, "data1": 5, "data2": 0x10},  # Outside range
@@ -464,7 +469,7 @@ async def test_ingenium_climate_multiple_messages_in_update(entity):
     """Test handling multiple bus messages in a single coordinator update."""
     # Multiple messages in one update
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x03},  # AC ON
                 {"command": 4, "data1": 1, "data2": 0x43},  # FAN_AUTO + AUTO
@@ -489,7 +494,7 @@ async def test_ingenium_climate_off_mode(entity):
     """Test handling multiple bus messages in a single coordinator update."""
     # Multiple messages in one update
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x03},  # AC ON
                 {"command": 4, "data1": 1, "data2": 0x43},  # FAN_AUTO + AUTO
@@ -502,7 +507,7 @@ async def test_ingenium_climate_off_mode(entity):
     entity.async_write_ha_state.reset_mock()
 
     entity.coordinator.data = {
-        5: {
+        DEVICE_ADDRESS: {
             "bus_messages": [
                 {"command": 4, "data1": 0, "data2": 0x02},  # AC OFF
             ]
@@ -526,9 +531,6 @@ async def test_ingenium_climate_off_mode(entity):
 @pytest.mark.asyncio
 async def test_ingenium_climate_on_off_controls(entity):
     """Test on/off control send payloads and response handling for ACK/NACK messages."""
-    entity._attr_available = False
-    entity._attr_hvac_action = None
-
     await entity.async_turn_on()
 
     assert entity._send_bus_message.call_count == 1
@@ -541,7 +543,7 @@ async def test_ingenium_climate_on_off_controls(entity):
     # Simulate receiving NACK response (no Entity changes expected)
     entity._process_response_message({"command": 2, "data1": 0, "data2": 0x03})
     # Internal state is still stored
-    assert entity._attr_available is False
+    assert entity._attr_available is True
     assert entity._attr_hvac_action == None
     entity.async_write_ha_state.assert_not_called()
 
@@ -569,38 +571,78 @@ async def test_ingenium_climate_on_off_controls(entity):
 
 
 @pytest.mark.asyncio
-async def test_ingenium_climate_modes(entity):
-    entity._attr_fan_mode = FAN_AUTO
+async def test_ingenium_climate_toggle(entity):
+    """Test on/off toggle control send payloads and response handling for ACK/NACK messages."""
+    entity._attr_hvac_action = HVACAction.OFF
+
+    await entity.async_toggle()
+
+    assert entity._send_bus_message.call_count == 1
+    entity._send_bus_message.assert_any_call(
+        command=4,
+        data1=0,
+        data2=3,
+    )
+
+    # Toggle device OFF when it's already running
+    entity._send_bus_message.reset_mock()
     entity._attr_hvac_action = None
 
-    assert len(entity.hvac_modes) == 5
+    await entity.async_toggle()
+
+    assert entity._send_bus_message.call_count == 1
+    entity._send_bus_message.assert_any_call(
+        command=4,
+        data1=0,
+        data2=2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_ingenium_climate_modes(entity):
+    entity._attr_fan_mode = FAN_AUTO
+    entity._attr_hvac_action = None  # AC is current IDLE (not OFF)
+
+    assert len(entity.hvac_modes) == 6
 
     # Cycle through all the HVAC modes
-    for mode in entity.hvac_modes:
+    for mode in [
+        HVACMode.COOL,
+        HVACMode.DRY,
+        HVACMode.FAN_ONLY,
+        HVACMode.AUTO,
+        HVACMode.HEAT,
+        HVACMode.OFF,
+    ]:
         entity._send_bus_message.reset_mock()
 
         await entity.async_set_hvac_mode(mode)
 
-        # The first message sets uses existing fan mode and the new HVAC mode
-        expected_data2 = {
-            HVACMode.COOL: 0x40,
-            HVACMode.DRY: 0x41,
-            HVACMode.FAN_ONLY: 0x42,
-            HVACMode.AUTO: 0x43,
-            HVACMode.HEAT: 0x44,
-        }[mode]
+        if mode == HVACMode.OFF:
+            # OFF is not an HVAC Mode, but a device state change instead. It should send a different payload to turn the device OFF.
+            expected_data1 = 0x00
+            expected_data2 = 0x02
+        else:
+            expected_data1 = 0x01
+            expected_data2 = {
+                HVACMode.COOL: 0x40,
+                HVACMode.DRY: 0x41,
+                HVACMode.FAN_ONLY: 0x42,
+                HVACMode.AUTO: 0x43,
+                HVACMode.HEAT: 0x44,
+            }[mode]
 
-        assert entity._send_bus_message.call_count == 1
-        entity._send_bus_message.assert_any_call(
-            command=4,
-            data1=1,
-            data2=expected_data2,
-        )
+            assert entity._send_bus_message.call_count == 1
+            entity._send_bus_message.assert_any_call(
+                command=4,
+                data1=expected_data1,
+                data2=expected_data2,
+            )
 
     # Test invalid mode
     with pytest.raises(ValueError):
-        # OFF is not in the supported modes for this entity
-        await entity.async_set_hvac_mode(HVACMode.OFF)
+        # HEAT_COOL is not in the supported modes for this entity
+        await entity.async_set_hvac_mode(HVACMode.HEAT_COOL)
 
 
 @pytest.mark.asyncio
@@ -659,6 +701,10 @@ async def test_ingenium_climate_fan_mode_controls(entity):
             data1=1,
             data2=expected_data2,
         )
+
+    # Test invalid mode
+    with pytest.raises(ValueError):
+        await entity.async_set_fan_mode("diffuse")
 
 
 @pytest.mark.asyncio
