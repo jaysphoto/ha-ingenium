@@ -21,16 +21,19 @@ from .entity import BaseEntity
 
 SUPPORTED_DEVICES = {
     BusDeviceType.AC_GATEWAY_LG: {
-        "features": ClimateEntityFeature.TARGET_TEMPERATURE
-        | ClimateEntityFeature.FAN_MODE
-        | ClimateEntityFeature.TURN_ON
-        | ClimateEntityFeature.TURN_OFF,
+        "features": (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        ),
         "hvac_modes": [
             HVACMode.COOL,
             HVACMode.AUTO,
             HVACMode.DRY,
             HVACMode.HEAT,
             HVACMode.FAN_ONLY,
+            HVACMode.OFF,
         ],
         "fan_modes": [FAN_OFF, FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH],
         "model": "BUSing-LGAC-I",
@@ -160,6 +163,13 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
 
         return True
 
+    async def async_toggle(self) -> None:
+        """Toggle the AC on/off."""
+        if self._attr_hvac_action == HVACAction.OFF:
+            await self.async_turn_on()
+        else:
+            await self.async_turn_off()
+
     async def async_turn_on(self) -> None:
         """Turn the AC on."""
         await self._send_bus_message(command=4, data1=(self._unit_id * 4), data2=3)
@@ -176,7 +186,11 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
-        if hvac_mode in self._attr_hvac_modes:
+        if hvac_mode == HVACMode.OFF:
+            # Turn off the AC unit if the requested mode is OFF
+            # Note: The device will still report the last HVAC/Fan Mode and temperature setting even when OFF
+            await self.async_turn_off()
+        else:
             await self._write_mode_register(
                 hvac_mode=hvac_mode, fan_mode=self._attr_fan_mode
             )
@@ -184,8 +198,6 @@ class IngeniumClimate(BaseEntity, ClimateEntity):
             # Turn on the AC unit if it is currently OFF
             if self._attr_hvac_action == HVACAction.OFF:
                 await self.async_turn_on()
-        else:
-            raise ValueError(f"Invalid hvac mode: {hvac_mode}")
 
     async def async_set_temperature(self, **kwargs: dict) -> None:
         """Set new temperature."""
